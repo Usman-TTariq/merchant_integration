@@ -18,7 +18,9 @@ import {
 import { getDashboardStatus, getKoronaProductsLive } from "./status.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = path.resolve(__dirname, "../../public");
+const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
+  ? path.join(process.cwd(), "public")
+  : path.resolve(__dirname, "../../public");
 const PORT = Number(process.env.DASHBOARD_PORT ?? "3847");
 
 let syncRunning = false;
@@ -148,24 +150,32 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 }
 
 const server = http.createServer((req, res) => {
-  void (async () => {
-    if (req.url?.startsWith("/api/")) {
-      await handleApi(req, res);
-      return;
-    }
-    if (serveStatic(req, res)) return;
-    sendJson(res, 404, { error: "Not found" });
-  })();
+  void handleRequest(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`Dashboard: http://localhost:${PORT}`);
-  const nets = os.networkInterfaces();
-  for (const iface of Object.values(nets)) {
-    for (const net of iface ?? []) {
-      if (net.family === "IPv4" && !net.internal) {
-        console.log(`Network:   http://${net.address}:${PORT}`);
+export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  if (req.url?.startsWith("/api/")) {
+    await handleApi(req, res);
+    return;
+  }
+  if (serveStatic(req, res)) return;
+  sendJson(res, 404, { error: "Not found" });
+}
+
+const runningDirectly =
+  Boolean(process.argv[1]) &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (runningDirectly && !process.env.VERCEL) {
+  server.listen(PORT, () => {
+    console.log(`Dashboard: http://localhost:${PORT}`);
+    const nets = os.networkInterfaces();
+    for (const iface of Object.values(nets)) {
+      for (const net of iface ?? []) {
+        if (net.family === "IPv4" && !net.internal) {
+          console.log(`Network:   http://${net.address}:${PORT}`);
+        }
       }
     }
-  }
-});
+  });
+}

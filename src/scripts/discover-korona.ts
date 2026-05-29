@@ -1,7 +1,5 @@
 import "dotenv/config";
-import { KoronaClient } from "../clients/korona.js";
 
-const korona = new KoronaClient();
 const base = process.env.KORONA_BASE_URL!.replace(/\/$/, "");
 const accountId = process.env.KORONA_ACCOUNT_ID!;
 const auth =
