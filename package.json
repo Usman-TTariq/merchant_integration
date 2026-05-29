@@ -1,0 +1,38 @@
+{
+  "name": "korona-shiphero-sync",
+  "version": "1.0.0",
+  "description": "Sync products, inventory, and orders between Korona POS and ShipHero",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "sync:products": "tsx src/cli.ts products",
+    "sync:inventory": "tsx src/cli.ts inventory",
+    "sync:orders": "tsx src/cli.ts orders",
+    "sync:all": "tsx src/cli.ts all",
+    "start": "tsx src/scheduler.ts",
+    "setup": "tsx src/scripts/setup.ts",
+    "logs:clear": "tsx src/scripts/clear-error-logs.ts",
+    "discover": "tsx src/scripts/discover-korona.ts",
+    "sync:phase2": "tsx src/scripts/run-phase2.ts",
+    "status": "tsx src/scripts/status-db.ts",
+    "progress": "tsx src/scripts/progress.ts",
+    "inspect:receipts": "tsx src/scripts/inspect-receipts.ts",
+    "ui": "tsx src/ui/server.ts",
+    "dev": "tsx src/cli.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.5.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.21",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
