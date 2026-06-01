@@ -16,7 +16,7 @@
     "sync:phase2": "tsx src/scripts/run-phase2.ts",
     "status": "tsx src/scripts/status-db.ts",
     "progress": "tsx src/scripts/progress.ts",
-    "inspect:receipts": "tsx src/scripts/inspect-receipts.ts",
+    "db:setup": "tsx src/scripts/setup-supabase.ts",
     "ui": "tsx src/ui/server.ts",
     "dev": "tsx src/cli.ts"
   },
@@ -24,14 +24,17 @@
     "node": "20.x"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.8",
     "better-sqlite3": "^11.10.0",
     "dotenv": "^16.5.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "pg": "^8.16.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.21",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.15.2",
     "@vercel/node": "^5.1.14",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"

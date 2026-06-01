@@ -1,4 +1,13 @@
-import { getDb } from "../db.js";
+import {
+  countLogsByLevel,
+  countTable,
+  getAllCursors,
+  queryOrderMappings,
+  queryProcessedReceipts,
+  queryProductMappings,
+  querySyncLogs,
+} from "../db.js";
+import { KoronaClient } from "../clients/korona.js";
 
 export interface DashboardStats {
   productMappings: number;
@@ -8,110 +17,70 @@ export interface DashboardStats {
   logWarnings: number;
 }
 
-export function getStats(): DashboardStats {
-  const db = getDb();
+export async function getStats(): Promise<DashboardStats> {
   return {
-    productMappings: (
-      db.prepare("SELECT COUNT(*) AS c FROM product_mappings").get() as { c: number }
-    ).c,
-    orderMappings: (
-      db.prepare("SELECT COUNT(*) AS c FROM order_mappings").get() as { c: number }
-    ).c,
-    processedReceipts: (
-      db.prepare("SELECT COUNT(*) AS c FROM processed_receipts").get() as { c: number }
-    ).c,
-    logErrors: (
-      db.prepare("SELECT COUNT(*) AS c FROM sync_log WHERE level = 'error'").get() as { c: number }
-    ).c,
-    logWarnings: (
-      db.prepare("SELECT COUNT(*) AS c FROM sync_log WHERE level = 'warn'").get() as { c: number }
-    ).c,
+    productMappings: await countTable("product_mappings"),
+    orderMappings: await countTable("order_mappings"),
+    processedReceipts: await countTable("processed_receipts"),
+    logErrors: await countLogsByLevel("error"),
+    logWarnings: await countLogsByLevel("warn"),
   };
 }
 
-export function getCursors(): Array<{ key: string; value: string; updated_at: string }> {
-  return getDb()
-    .prepare("SELECT key, value, updated_at FROM sync_cursors ORDER BY key")
-    .all() as Array<{ key: string; value: string; updated_at: string }>;
+export async function getCursors(): Promise<Array<{ key: string; value: string; updated_at: string }>> {
+  return getAllCursors();
 }
 
-export function getProducts(page = 1, limit = 50, search = "") {
-  const offset = (page - 1) * limit;
-  const db = getDb();
-  const term = `%${search.trim()}%`;
-
-  const rows = search
-    ? (db
-        .prepare(
-          `SELECT korona_product_id, korona_product_number, shiphero_sku, korona_revision, updated_at
-           FROM product_mappings
-           WHERE korona_product_id LIKE ? OR korona_product_number LIKE ? OR shiphero_sku LIKE ?
-           ORDER BY updated_at DESC LIMIT ? OFFSET ?`
-        )
-        .all(term, term, term, limit, offset) as Array<Record<string, unknown>>)
-    : (db
-        .prepare(
-          `SELECT korona_product_id, korona_product_number, shiphero_sku, korona_revision, updated_at
-           FROM product_mappings ORDER BY updated_at DESC LIMIT ? OFFSET ?`
-        )
-        .all(limit, offset) as Array<Record<string, unknown>>);
-
-  const total = search
-    ? (
-        db
-          .prepare(
-            `SELECT COUNT(*) AS c FROM product_mappings
-             WHERE korona_product_id LIKE ? OR korona_product_number LIKE ? OR shiphero_sku LIKE ?`
-          )
-          .get(term, term, term) as { c: number }
-      ).c
-    : (db.prepare("SELECT COUNT(*) AS c FROM product_mappings").get() as { c: number }).c;
-
+export async function getProducts(page = 1, limit = 50, search = "") {
+  const { rows, total } = await queryProductMappings({ page, limit, search });
   return { rows, total, page, limit };
 }
 
 export function getOrders(page = 1, limit = 50) {
-  const offset = (page - 1) * limit;
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT korona_order_id, korona_order_type, shiphero_order_id, shiphero_order_number, created_at
-       FROM order_mappings ORDER BY created_at DESC LIMIT ? OFFSET ?`
-    )
-    .all(limit, offset) as Array<Record<string, unknown>>;
-  const total = (db.prepare("SELECT COUNT(*) AS c FROM order_mappings").get() as { c: number }).c;
+  return queryOrderMappings({ page, limit }).then(({ rows, total }: { rows: Record<string, unknown>[]; total: number }) => ({
+    rows,
+    total,
+    page,
+    limit,
+  }));
+}
+
+export async function getOrdersWithMeta(page = 1, limit = 50) {
+  const result = await getOrders(page, limit);
+  let koronaTotal = 0;
+  try {
+    const list = await new KoronaClient().getCustomerOrders({ page: 1 });
+    koronaTotal = list?.resultsTotal ?? 0;
+  } catch {
+    koronaTotal = -1;
+  }
+
+  let hint: string | undefined;
+  if (result.total === 0) {
+    if (koronaTotal === 0) {
+      hint =
+        "No customer orders in Korona yet. Create a customer order in Korona POS, then run Sync Orders.";
+    } else if (koronaTotal > 0) {
+      hint = `${koronaTotal} customer order(s) in Korona but none synced to ShipHero yet. Run Sync Orders.`;
+    } else {
+      hint = "Could not reach Korona to check customer orders.";
+    }
+  }
+
+  return {
+    ...result,
+    source: "order_mappings",
+    koronaCustomerOrdersTotal: Math.max(koronaTotal, 0),
+    hint,
+  };
+}
+
+export async function getReceipts(page = 1, limit = 50) {
+  const { rows, total } = await queryProcessedReceipts({ page, limit });
   return { rows, total, page, limit };
 }
 
-export function getReceipts(page = 1, limit = 50) {
-  const offset = (page - 1) * limit;
-  const db = getDb();
-  const rows = db
-    .prepare(
-      "SELECT receipt_id, processed_at FROM processed_receipts ORDER BY processed_at DESC LIMIT ? OFFSET ?"
-    )
-    .all(limit, offset) as Array<Record<string, unknown>>;
-  const total = (db.prepare("SELECT COUNT(*) AS c FROM processed_receipts").get() as { c: number }).c;
-  return { rows, total, page, limit };
-}
-
-export function getLogs(page = 1, limit = 100, level = "") {
-  const offset = (page - 1) * limit;
-  const db = getDb();
-  const rows = level
-    ? (db
-        .prepare(
-          `SELECT id, job, level, message, created_at FROM sync_log
-           WHERE level = ? ORDER BY id DESC LIMIT ? OFFSET ?`
-        )
-        .all(level, limit, offset) as Array<Record<string, unknown>>)
-    : (db
-        .prepare(
-          "SELECT id, job, level, message, created_at FROM sync_log ORDER BY id DESC LIMIT ? OFFSET ?"
-        )
-        .all(limit, offset) as Array<Record<string, unknown>>);
-  const total = level
-    ? (db.prepare("SELECT COUNT(*) AS c FROM sync_log WHERE level = ?").get(level) as { c: number }).c
-    : (db.prepare("SELECT COUNT(*) AS c FROM sync_log").get() as { c: number }).c;
+export async function getLogs(page = 1, limit = 100, level = "") {
+  const { rows, total } = await querySyncLogs({ page, limit, level: level || undefined });
   return { rows, total, page, limit };
 }

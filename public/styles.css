@@ -267,3 +267,17 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 
 .deleted { color: var(--err); }
+
+.hint {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: rgba(240, 180, 41, 0.12);
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  color: var(--warn);
+  font-size: 0.92rem;
+}
+
+.section-gap {
+  margin-top: 28px;
+}

@@ -16,7 +16,8 @@ export interface DashboardStatus {
     skuField: string;
     warehouseId: string | null;
     shipheroAuthMode: string;
-    databasePath: string;
+    databaseProvider: string;
+    databaseDetail: string;
   };
 }
 
@@ -69,7 +70,11 @@ export async function getDashboardStatus(): Promise<DashboardStatus> {
       skuField: config.sync.skuField,
       warehouseId: config.shiphero.warehouseId ?? null,
       shipheroAuthMode: config.shiphero.authMode,
-      databasePath: config.sync.databasePath,
+      databaseProvider: config.database.provider,
+      databaseDetail:
+        config.database.provider === "supabase"
+          ? (config.database.supabaseUrl ?? "supabase")
+          : config.database.sqlitePath,
     },
   };
 }
@@ -89,6 +94,40 @@ export async function getKoronaProductsLive(page = 1) {
       revision: p.revision ?? null,
       barcode: p.codes?.find((c) => c.primary)?.code ?? p.codes?.[0]?.code ?? "",
       price: p.prices?.[0]?.value ?? null,
+    })),
+  };
+}
+
+export async function getKoronaOrdersLive(page = 1) {
+  const korona = new KoronaClient();
+  const list = await korona.getCustomerOrders({ page });
+  if (!list) {
+    return {
+      total: 0,
+      pages: 1,
+      page: 1,
+      orders: [] as Array<{
+        id: string;
+        number: string;
+        deleted: boolean;
+        revision: number | null;
+        lineCount: number;
+        creationTime: string;
+      }>,
+    };
+  }
+
+  return {
+    total: list.resultsTotal ?? 0,
+    pages: list.pagesTotal ?? 1,
+    page: list.currentPage ?? page,
+    orders: (list.results ?? []).map((o) => ({
+      id: o.id,
+      number: o.number ?? "",
+      deleted: Boolean(o.deleted),
+      revision: o.revision ?? null,
+      lineCount: (o.items ?? o.orderLines ?? []).length,
+      creationTime: o.creationTime ?? "",
     })),
   };
 }

@@ -3,19 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { logSync } from "../db.js";
+import { config } from "../config.js";
+import { initDatabase, logSync } from "../db.js";
 import { syncInventory } from "../sync/inventory.js";
 import { syncOrders } from "../sync/orders.js";
 import { syncProducts } from "../sync/products.js";
 import {
   getCursors,
   getLogs,
-  getOrders,
+  getOrdersWithMeta,
   getProducts,
   getReceipts,
   getStats,
 } from "./dashboard-data.js";
-import { getDashboardStatus, getKoronaProductsLive } from "./status.js";
+import { getDashboardStatus, getKoronaOrdersLive, getKoronaProductsLive } from "./status.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
@@ -67,39 +68,56 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
   const q = parseQuery(url);
 
   try {
+    if (req.url?.startsWith("/api/") && url.pathname !== "/api/health") {
+      await initDatabase();
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      return sendJson(res, 200, {
+        ok: true,
+        provider: config.database.provider,
+        vercel: Boolean(process.env.VERCEL),
+        supabaseConfigured: Boolean(config.database.supabaseUrl && config.database.supabaseServiceKey),
+      });
+    }
+
     if (req.method === "GET" && url.pathname === "/api/status") {
       return sendJson(res, 200, await getDashboardStatus());
     }
 
     if (req.method === "GET" && url.pathname === "/api/stats") {
-      return sendJson(res, 200, getStats());
+      return sendJson(res, 200, await getStats());
     }
 
     if (req.method === "GET" && url.pathname === "/api/cursors") {
-      return sendJson(res, 200, getCursors());
+      return sendJson(res, 200, await getCursors());
     }
 
     if (req.method === "GET" && url.pathname === "/api/products") {
       return sendJson(
         res,
         200,
-        getProducts(Number(q.page ?? 1), Number(q.limit ?? 50), q.search ?? "")
+        await getProducts(Number(q.page ?? 1), Number(q.limit ?? 50), q.search ?? "")
       );
     }
 
     if (req.method === "GET" && url.pathname === "/api/orders") {
-      return sendJson(res, 200, getOrders(Number(q.page ?? 1), Number(q.limit ?? 50)));
+      return sendJson(res, 200, await getOrdersWithMeta(Number(q.page ?? 1), Number(q.limit ?? 50)));
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/korona/orders") {
+      return sendJson(res, 200, await getKoronaOrdersLive(Number(q.page ?? 1)));
     }
 
     if (req.method === "GET" && url.pathname === "/api/receipts") {
-      return sendJson(res, 200, getReceipts(Number(q.page ?? 1), Number(q.limit ?? 50)));
+      return sendJson(res, 200, await getReceipts(Number(q.page ?? 1), Number(q.limit ?? 50)));
     }
 
     if (req.method === "GET" && url.pathname === "/api/logs") {
       return sendJson(
         res,
         200,
-        getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "")
+        await getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "")
       );
     }
 
@@ -125,13 +143,14 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
       void (async () => {
         try {
-          logSync("dashboard", "info", `Manual sync started: ${job}`);
+          await initDatabase();
+          await logSync("dashboard", "info", `Manual sync started: ${job}`);
           if (job === "products" || job === "all") await syncProducts();
           if (job === "inventory" || job === "all") await syncInventory();
           if (job === "orders" || job === "all") await syncOrders();
-          logSync("dashboard", "info", `Manual sync finished: ${job}`);
+          await logSync("dashboard", "info", `Manual sync finished: ${job}`);
         } catch (err) {
-          logSync(
+          await logSync(
             "dashboard",
             "error",
             `Manual sync failed (${job}): ${err instanceof Error ? err.message : String(err)}`
@@ -167,15 +186,23 @@ const runningDirectly =
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (runningDirectly && !process.env.VERCEL) {
-  server.listen(PORT, () => {
-    console.log(`Dashboard: http://localhost:${PORT}`);
-    const nets = os.networkInterfaces();
-    for (const iface of Object.values(nets)) {
-      for (const net of iface ?? []) {
-        if (net.family === "IPv4" && !net.internal) {
-          console.log(`Network:   http://${net.address}:${PORT}`);
+  void initDatabase()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`Dashboard: http://localhost:${PORT}`);
+        console.log(`Database: ${config.database.provider}`);
+        const nets = os.networkInterfaces();
+        for (const iface of Object.values(nets)) {
+          for (const net of iface ?? []) {
+            if (net.family === "IPv4" && !net.internal) {
+              console.log(`Network:   http://${net.address}:${PORT}`);
+            }
+          }
         }
-      }
-    }
-  });
+      });
+    })
+    .catch((err: unknown) => {
+      console.error("Database init failed:", err);
+      process.exit(1);
+    });
 }

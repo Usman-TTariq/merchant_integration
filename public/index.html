@@ -29,6 +29,7 @@
     </section>
 
     <section class="stats" id="stats"></section>
+    <p id="load-error" class="hint" hidden></p>
 
     <nav class="tabs">
       <button class="tab active" data-tab="overview" type="button">Overview</button>
@@ -71,9 +72,13 @@
       </section>
 
       <section id="tab-orders" class="tab-panel">
-        <h2>Order Mappings</h2>
+        <h2>Order Mappings (Korona → ShipHero)</h2>
+        <p id="orders-hint" class="hint"></p>
         <div id="orders-table" class="table-wrap"></div>
         <div class="pager" id="orders-pager"></div>
+        <h2 class="section-gap">Korona Customer Orders (live)</h2>
+        <div id="korona-orders-table" class="table-wrap"></div>
+        <div class="pager" id="korona-orders-pager"></div>
       </section>
 
       <section id="tab-receipts" class="tab-panel">

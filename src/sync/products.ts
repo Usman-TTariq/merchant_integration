@@ -1,6 +1,6 @@
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
-import { getDb, getCursor, logSync, setCursor } from "../db.js";
+import { getCursor, logSync, setCursor, upsertProductMapping } from "../db.js";
 import { koronaSku, sanitizeSku } from "../utils/sku.js";
 import type { KoronaProduct } from "../types/korona.js";
 
@@ -18,25 +18,14 @@ function primaryBarcode(product: KoronaProduct): string | undefined {
 export async function syncProducts(): Promise<{ created: number; updated: number; skipped: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
-  const db = getDb();
 
-  const revisionCursor = getCursor(CURSOR_KEY);
+  const revisionCursor = await getCursor(CURSOR_KEY);
   const revision = revisionCursor ? Number(revisionCursor) : undefined;
 
   let created = 0;
   let updated = 0;
   let skipped = 0;
   let maxRevision = revision ?? 0;
-
-  const upsertMapping = db.prepare(`
-    INSERT INTO product_mappings (korona_product_id, korona_product_number, shiphero_sku, korona_revision, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(korona_product_id) DO UPDATE SET
-      korona_product_number = excluded.korona_product_number,
-      shiphero_sku = excluded.shiphero_sku,
-      korona_revision = excluded.korona_revision,
-      updated_at = excluded.updated_at
-  `);
 
   for await (const batch of korona.paginate((page) => korona.getProducts({ revision, page }))) {
     for (const product of batch) {
@@ -64,24 +53,29 @@ export async function syncProducts(): Promise<{ created: number; updated: number
             onHand: 0,
           });
           created++;
-          logSync("products", "info", `Created ShipHero product ${sku}`);
+          await logSync("products", "info", `Created ShipHero product ${sku}`);
         } else {
           await shiphero.updateProduct({ sku, name, barcode });
           updated++;
         }
 
-        upsertMapping.run(product.id, product.number ?? null, sku, product.revision ?? null);
+        await upsertProductMapping({
+          koronaProductId: product.id,
+          koronaProductNumber: product.number ?? null,
+          shipheroSku: sku,
+          koronaRevision: product.revision ?? null,
+        });
       } catch (err) {
         skipped++;
-        logSync("products", "error", `Failed ${sku}: ${err instanceof Error ? err.message : String(err)}`);
+        await logSync("products", "error", `Failed ${sku}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
 
   if (maxRevision > (revision ?? 0)) {
-    setCursor(CURSOR_KEY, String(maxRevision));
+    await setCursor(CURSOR_KEY, String(maxRevision));
   }
 
-  logSync("products", "info", `Done: created=${created} updated=${updated} skipped=${skipped}`);
+  await logSync("products", "info", `Done: created=${created} updated=${updated} skipped=${skipped}`);
   return { created, updated, skipped };
 }

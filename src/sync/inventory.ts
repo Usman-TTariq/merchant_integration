@@ -1,7 +1,17 @@
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
 import { config } from "../config.js";
-import { getDb, getCursor, logSync, setCursor } from "../db.js";
+import {
+  countOrderMappings,
+  findKoronaOrderIdByShiphero,
+  findKoronaProductIdBySku,
+  findShipheroSku,
+  getCursor,
+  isReceiptProcessed,
+  logSync,
+  markReceiptProcessed,
+  setCursor,
+} from "../db.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type { KoronaReceipt, KoronaSaleLine } from "../types/korona.js";
 
@@ -20,19 +30,9 @@ function resolveProductId(line: KoronaSaleLine): string | null {
 export async function syncInventoryFromKorona(): Promise<{ receipts: number; adjustments: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
-  const db = getDb();
 
-  const revision = getCursor(RECEIPT_CURSOR);
+  const revision = await getCursor(RECEIPT_CURSOR);
   const revisionNum = revision ? Number(revision) : undefined;
-
-  const isProcessed = db.prepare("SELECT 1 FROM processed_receipts WHERE receipt_id = ?");
-  const markProcessed = db.prepare("INSERT OR IGNORE INTO processed_receipts (receipt_id) VALUES (?)");
-  const skuByProductId = db.prepare(
-    "SELECT shiphero_sku FROM product_mappings WHERE korona_product_id = ?"
-  );
-  const skuByProductNumber = db.prepare(
-    "SELECT shiphero_sku FROM product_mappings WHERE korona_product_number = ?"
-  );
 
   let receipts = 0;
   let adjustments = 0;
@@ -44,7 +44,7 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
         maxRevision = receipt.revision;
       }
 
-      if (isProcessed.get(receipt.id)) continue;
+      if (await isReceiptProcessed(receipt.id)) continue;
 
       let full: KoronaReceipt = receipt;
       if (!receipt.sales?.length) {
@@ -61,19 +61,10 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
 
         const productId = resolveProductId(line);
         const productNumber = line.product?.number ?? line.recognitionCode;
-        const row = productId
-          ? (skuByProductId.get(productId) as { shiphero_sku: string } | undefined) ??
-            (productNumber
-              ? (skuByProductNumber.get(productNumber) as { shiphero_sku: string } | undefined)
-              : undefined)
-          : productNumber
-            ? (skuByProductNumber.get(productNumber) as { shiphero_sku: string } | undefined)
-            : undefined;
-
-        let sku = row?.shiphero_sku;
+        let sku = await findShipheroSku(productId ?? undefined, productNumber);
         if (!sku && productNumber) sku = sanitizeSku(productNumber);
         if (!sku) {
-          logSync("inventory", "warn", `No SKU mapping for receipt ${receipt.number ?? receipt.id}`);
+          await logSync("inventory", "warn", `No SKU mapping for receipt ${receipt.number ?? receipt.id}`);
           continue;
         }
 
@@ -85,7 +76,7 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
           );
           adjustments++;
         } catch (err) {
-          logSync(
+          await logSync(
             "inventory",
             "error",
             `inventory_remove ${sku}: ${err instanceof Error ? err.message : String(err)}`
@@ -93,26 +84,25 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
         }
       }
 
-      markProcessed.run(receipt.id);
+      await markReceiptProcessed(receipt.id);
       receipts++;
     }
   }
 
   if (maxRevision > (revisionNum ?? 0)) {
-    setCursor(RECEIPT_CURSOR, String(maxRevision));
+    await setCursor(RECEIPT_CURSOR, String(maxRevision));
   }
 
-  logSync("inventory", "info", `Korona→ShipHero: receipts=${receipts} adjustments=${adjustments}`);
+  await logSync("inventory", "info", `Korona→ShipHero: receipts=${receipts} adjustments=${adjustments}`);
   return { receipts, adjustments };
 }
 
 export async function syncInventoryToKorona(): Promise<{ orders: number; adjustments: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
-  const db = getDb();
 
   if (!config.korona.inventoryId || !config.korona.inventoryListId) {
-    logSync(
+    await logSync(
       "inventory",
       "warn",
       "Skipping ShipHero→Korona: set KORONA_INVENTORY_ID and KORONA_INVENTORY_LIST_ID"
@@ -120,21 +110,14 @@ export async function syncInventoryToKorona(): Promise<{ orders: number; adjustm
     return { orders: 0, adjustments: 0 };
   }
 
-  const mappedOrders = (db.prepare("SELECT COUNT(*) AS c FROM order_mappings").get() as { c: number }).c;
+  const mappedOrders = await countOrderMappings();
   if (mappedOrders === 0) {
-    logSync("inventory", "info", "ShipHero→Korona: skipped (no order mappings yet)");
+    await logSync("inventory", "info", "ShipHero→Korona: skipped (no order mappings yet)");
     return { orders: 0, adjustments: 0 };
   }
 
-  const updatedFrom = getCursor(SHIPHERO_ORDERS_CURSOR) ?? config.sync.shipheroOrdersUpdatedFrom;
+  const updatedFrom = (await getCursor(SHIPHERO_ORDERS_CURSOR)) ?? config.sync.shipheroOrdersUpdatedFrom;
   const orders = await shiphero.getFulfilledOrders(updatedFrom);
-
-  const mappingByShiphero = db.prepare(
-    `SELECT korona_order_id FROM order_mappings WHERE shiphero_order_id = ?`
-  );
-  const productBySku = db.prepare(
-    "SELECT korona_product_id FROM product_mappings WHERE shiphero_sku = ?"
-  );
 
   let adjustments = 0;
   let latestUpdated = updatedFrom ?? "";
@@ -144,8 +127,8 @@ export async function syncInventoryToKorona(): Promise<{ orders: number; adjustm
       latestUpdated = order.updated_at;
     }
 
-    const mapped = mappingByShiphero.get(order.id) as { korona_order_id: string } | undefined;
-    if (!mapped) continue;
+    const koronaOrderId = await findKoronaOrderIdByShiphero(order.id);
+    if (!koronaOrderId) continue;
 
     const items: Array<{ product: { id: string }; quantity: { value: number } }> = [];
 
@@ -155,14 +138,14 @@ export async function syncInventoryToKorona(): Promise<{ orders: number; adjustm
       const shipped = line.quantity_shipped ?? line.quantity ?? 0;
       if (shipped <= 0) continue;
 
-      const row = productBySku.get(line.sku) as { korona_product_id: string } | undefined;
-      if (!row) {
-        logSync("inventory", "warn", `No Korona product for SKU ${line.sku}`);
+      const koronaProductId = await findKoronaProductIdBySku(line.sku);
+      if (!koronaProductId) {
+        await logSync("inventory", "warn", `No Korona product for SKU ${line.sku}`);
         continue;
       }
 
       items.push({
-        product: { id: row.korona_product_id },
+        product: { id: koronaProductId },
         quantity: { value: shipped },
       });
       adjustments++;
@@ -175,9 +158,9 @@ export async function syncInventoryToKorona(): Promise<{ orders: number; adjustm
           config.korona.inventoryListId,
           items
         );
-        logSync("inventory", "info", `Updated Korona inventory for ShipHero order ${order.order_number}`);
+        await logSync("inventory", "info", `Updated Korona inventory for ShipHero order ${order.order_number}`);
       } catch (err) {
-        logSync(
+        await logSync(
           "inventory",
           "error",
           `Korona inventory update: ${err instanceof Error ? err.message : String(err)}`
@@ -187,10 +170,10 @@ export async function syncInventoryToKorona(): Promise<{ orders: number; adjustm
   }
 
   if (latestUpdated) {
-    setCursor(SHIPHERO_ORDERS_CURSOR, latestUpdated);
+    await setCursor(SHIPHERO_ORDERS_CURSOR, latestUpdated);
   }
 
-  logSync("inventory", "info", `ShipHero→Korona: orders=${orders.length} line adjustments=${adjustments}`);
+  await logSync("inventory", "info", `ShipHero→Korona: orders=${orders.length} line adjustments=${adjustments}`);
   return { orders: orders.length, adjustments };
 }
 

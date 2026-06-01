@@ -30,6 +30,29 @@ function shipheroAuthMode(): "access_token" | "refresh_token" | "password" | "no
   return "none";
 }
 
+function supabaseUrl(): string | undefined {
+  const direct = optional("SUPABASE_URL");
+  if (direct) return direct.replace(/\/$/, "");
+  const databaseUrl = optional("DATABASE_URL");
+  if (databaseUrl?.startsWith("http")) return databaseUrl.replace(/\/$/, "");
+  return undefined;
+}
+
+function databaseProvider(): "supabase" | "sqlite" {
+  const forced = optional("DATABASE_PROVIDER");
+  if (forced === "sqlite" || forced === "supabase") return forced;
+  if (supabaseUrl() && optional("SUPABASE_SERVICE_ROLE_KEY")) return "supabase";
+  return "sqlite";
+}
+
+export function assertDatabaseConfigForRuntime(): void {
+  if (process.env.VERCEL && config.database.provider !== "supabase") {
+    throw new Error(
+      "Vercel deployment requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. SQLite does not persist on serverless."
+    );
+  }
+}
+
 export const config = {
   korona: {
     baseUrl: (optional("KORONA_BASE_URL") ?? "https://185.koronacloud.com/web/api/v3").replace(/\/$/, ""),
@@ -51,10 +74,16 @@ export const config = {
     warehouseId: optional("SHIPHERO_WAREHOUSE_ID"),
     locationId: optional("SHIPHERO_LOCATION_ID"),
   },
+  database: {
+    provider: databaseProvider(),
+    sqlitePath: optional("DATABASE_PATH") ?? "./data/sync.db",
+    postgresUrl: optional("DATABASE_URL")?.startsWith("postgres") ? optional("DATABASE_URL") : undefined,
+    supabaseUrl: supabaseUrl(),
+    supabaseServiceKey: optional("SUPABASE_SERVICE_ROLE_KEY"),
+  },
   sync: {
     pageSize: Number(optional("SYNC_PAGE_SIZE") ?? "100"),
     skuField: (optional("SKU_FIELD") ?? "number") as "number" | "code" | "id",
-    databasePath: optional("DATABASE_PATH") ?? "./data/sync.db",
     shipheroOrdersUpdatedFrom: optional("SHIPHERO_ORDERS_UPDATED_FROM"),
   },
   cron: {

@@ -1,9 +1,11 @@
-import Database from "better-sqlite3";
+import { countTable, getAllCursors, groupLogCounts, initDatabase } from "../db.js";
 import { config } from "../config.js";
 
-const db = new Database(config.sync.databasePath);
-console.log("mappings", db.prepare("SELECT COUNT(*) c FROM product_mappings").get());
-console.log("orders", db.prepare("SELECT COUNT(*) c FROM order_mappings").get());
-console.log("receipts", db.prepare("SELECT COUNT(*) c FROM processed_receipts").get());
-console.log("cursors", db.prepare("SELECT key, value FROM sync_cursors").all());
-console.log("logs", db.prepare("SELECT level, COUNT(*) c FROM sync_log GROUP BY level").all());
+await initDatabase();
+
+console.log("Database provider:", config.database.provider);
+console.log("mappings", { c: await countTable("product_mappings") });
+console.log("orders", { c: await countTable("order_mappings") });
+console.log("receipts", { c: await countTable("processed_receipts") });
+console.log("cursors", await getAllCursors());
+console.log("logs", await groupLogCounts().then((rows) => rows.map((r) => ({ level: r.level, c: r.c }))));

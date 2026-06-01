@@ -1,6 +1,7 @@
 const state = {
   tab: "overview",
   koronaPage: 1,
+  koronaOrdersPage: 1,
   mappingsPage: 1,
   ordersPage: 1,
   receiptsPage: 1,
@@ -53,7 +54,7 @@ function renderConfig(status) {
     <div><dt>SKU field</dt><dd>${esc(cfg.skuField)}</dd></div>
     <div><dt>ShipHero auth</dt><dd>${esc(cfg.shipheroAuthMode)}</dd></div>
     <div><dt>Warehouse ID</dt><dd>${esc(cfg.warehouseId ?? "not set")}</dd></div>
-    <div><dt>Database</dt><dd>${esc(cfg.databasePath)}</dd></div>
+    <div><dt>Database</dt><dd>${esc(cfg.databaseProvider)} — ${esc(cfg.databaseDetail ?? "")}</dd></div>
     <div><dt>Korona detail</dt><dd>${esc(status.korona.detail ?? "")}</dd></div>
     <div><dt>ShipHero detail</dt><dd>${esc(status.shiphero.detail ?? "")}</dd></div>
   `;
@@ -82,16 +83,42 @@ function pager(containerId, page, total, limit, onPage) {
 }
 
 async function loadOverview() {
-  const [status, stats, cursors] = await Promise.all([
+  const errorEl = document.getElementById("load-error");
+  const results = await Promise.allSettled([
     api("/api/status"),
     api("/api/stats"),
     api("/api/cursors"),
   ]);
 
-  setBadge("status-korona", status.korona.ok, "Korona", status.korona.detail);
-  setBadge("status-shiphero", status.shiphero.ok, "ShipHero", status.shiphero.detail);
-  renderStats(stats);
-  renderConfig(status);
+  const errors = results
+    .map((r, i) => {
+      if (r.status === "rejected") {
+        const label = ["/api/status", "/api/stats", "/api/cursors"][i];
+        return `${label}: ${r.reason?.message ?? r.reason}`;
+      }
+      return null;
+    })
+    .filter(Boolean);
+
+  if (errors.length) {
+    errorEl.hidden = false;
+    errorEl.textContent = `Dashboard data failed: ${errors.join(" | ")}. On Vercel, set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY and redeploy.`;
+  } else {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  const status = results[0].status === "fulfilled" ? results[0].value : null;
+  const stats = results[1].status === "fulfilled" ? results[1].value : null;
+  const cursors = results[2].status === "fulfilled" ? results[2].value : [];
+
+  if (status) {
+    setBadge("status-korona", status.korona.ok, "Korona", status.korona.detail);
+    setBadge("status-shiphero", status.shiphero.ok, "ShipHero", status.shiphero.detail);
+    renderConfig(status);
+  }
+
+  if (stats) renderStats(stats);
 
   document.getElementById("cursors").innerHTML = table(
     ["Key", "Value", "Updated"],
@@ -139,6 +166,10 @@ async function loadMappings() {
 
 async function loadOrders() {
   const data = await api(`/api/orders?page=${state.ordersPage}&limit=50`);
+  const hintEl = document.getElementById("orders-hint");
+  hintEl.textContent = data.hint ?? "";
+  hintEl.hidden = !data.hint;
+
   document.getElementById("orders-table").innerHTML = table(
     ["Korona Order", "Type", "ShipHero #", "ShipHero ID", "Created"],
     data.rows.map((r) => [
@@ -151,6 +182,23 @@ async function loadOrders() {
   );
   pager("orders-pager", data.page, data.total, data.limit, (p) => {
     state.ordersPage = p;
+    loadOrders();
+  });
+
+  const live = await api(`/api/korona/orders?page=${state.koronaOrdersPage}`);
+  document.getElementById("korona-orders-table").innerHTML = table(
+    ["Number", "ID", "Lines", "Revision", "Created", "Deleted"],
+    live.orders.map((o) => [
+      esc(o.number),
+      `<code>${esc(o.id)}</code>`,
+      esc(o.lineCount),
+      esc(o.revision ?? ""),
+      esc(o.creationTime),
+      o.deleted ? "yes" : "no",
+    ])
+  );
+  pager("korona-orders-pager", live.page, live.total, 100, (p) => {
+    state.koronaOrdersPage = p;
     loadOrders();
   });
 }
@@ -199,8 +247,15 @@ async function loadActiveTab() {
 }
 
 async function refreshAll() {
-  await loadOverview();
-  if (state.tab !== "overview") await loadActiveTab();
+  try {
+    await loadOverview();
+    if (state.tab !== "overview") await loadActiveTab();
+  } catch (err) {
+    console.error(err);
+    const errorEl = document.getElementById("load-error");
+    errorEl.hidden = false;
+    errorEl.textContent = err instanceof Error ? err.message : String(err);
+  }
 }
 
 document.querySelectorAll(".tab").forEach((btn) => {

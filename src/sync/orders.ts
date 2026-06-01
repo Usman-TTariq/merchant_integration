@@ -1,6 +1,13 @@
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
-import { getDb, getCursor, logSync, setCursor } from "../db.js";
+import {
+  findShipheroSku,
+  getCursor,
+  insertOrderMapping,
+  isOrderMapped,
+  logSync,
+  setCursor,
+} from "../db.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type { KoronaAddress, KoronaCustomerOrder, KoronaCustomerOrderLine } from "../types/korona.js";
 
@@ -42,19 +49,9 @@ function shippingFromOrder(order: KoronaCustomerOrder): Record<string, string> {
 export async function syncOrders(): Promise<{ created: number; skipped: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
-  const db = getDb();
 
-  const revision = getCursor(CURSOR_KEY);
+  const revision = await getCursor(CURSOR_KEY);
   const revisionNum = revision ? Number(revision) : undefined;
-
-  const isMapped = db.prepare("SELECT 1 FROM order_mappings WHERE korona_order_id = ?");
-  const insertMapping = db.prepare(`
-    INSERT INTO order_mappings (korona_order_id, korona_order_type, shiphero_order_id, shiphero_order_number)
-    VALUES (?, 'customerOrder', ?, ?)
-  `);
-  const skuLookup = db.prepare(
-    "SELECT shiphero_sku FROM product_mappings WHERE korona_product_id = ? OR korona_product_number = ?"
-  );
 
   let created = 0;
   let skipped = 0;
@@ -71,7 +68,7 @@ export async function syncOrders(): Promise<{ created: number; skipped: number }
       if (order.revision != null && order.revision > maxRevision) {
         maxRevision = order.revision;
       }
-      if (isMapped.get(order.id)) {
+      if (await isOrderMapped(order.id)) {
         skipped++;
         continue;
       }
@@ -81,7 +78,7 @@ export async function syncOrders(): Promise<{ created: number; skipped: number }
         try {
           full = await korona.getCustomerOrder(order.id);
         } catch (err) {
-          logSync("orders", "error", `Fetch order ${order.id}: ${err instanceof Error ? err.message : String(err)}`);
+          await logSync("orders", "error", `Fetch order ${order.id}: ${err instanceof Error ? err.message : String(err)}`);
           skipped++;
           continue;
         }
@@ -101,13 +98,11 @@ export async function syncOrders(): Promise<{ created: number; skipped: number }
 
         const productId = line.product?.id;
         const productNumber = line.product?.number;
-        const mapped = productId
-          ? (skuLookup.get(productId, productNumber ?? "") as { shiphero_sku: string } | undefined)
-          : undefined;
+        const mappedSku = await findShipheroSku(productId, productNumber);
 
-        const sku = mapped?.shiphero_sku ?? (productNumber ? sanitizeSku(productNumber) : null);
+        const sku = mappedSku ?? (productNumber ? sanitizeSku(productNumber) : null);
         if (!sku) {
-          logSync("orders", "warn", `Order ${full.number ?? full.id}: missing SKU for line`);
+          await logSync("orders", "warn", `Order ${full.number ?? full.id}: missing SKU for line`);
           continue;
         }
 
@@ -136,20 +131,25 @@ export async function syncOrders(): Promise<{ created: number; skipped: number }
           shippingAddress: shippingFromOrder(full),
         });
 
-        insertMapping.run(full.id, createdOrder.id, createdOrder.order_number);
+        await insertOrderMapping({
+          koronaOrderId: full.id,
+          koronaOrderType: "customerOrder",
+          shipheroOrderId: createdOrder.id,
+          shipheroOrderNumber: createdOrder.order_number,
+        });
         created++;
-        logSync("orders", "info", `Created ShipHero order ${createdOrder.order_number} from Korona ${orderNumber}`);
+        await logSync("orders", "info", `Created ShipHero order ${createdOrder.order_number} from Korona ${orderNumber}`);
       } catch (err) {
         skipped++;
-        logSync("orders", "error", `Order ${orderNumber}: ${err instanceof Error ? err.message : String(err)}`);
+        await logSync("orders", "error", `Order ${orderNumber}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
 
   if (maxRevision > (revisionNum ?? 0)) {
-    setCursor(CURSOR_KEY, String(maxRevision));
+    await setCursor(CURSOR_KEY, String(maxRevision));
   }
 
-  logSync("orders", "info", `Done: created=${created} skipped=${skipped}`);
+  await logSync("orders", "info", `Done: created=${created} skipped=${skipped}`);
   return { created, skipped };
 }

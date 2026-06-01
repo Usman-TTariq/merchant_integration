@@ -1,3 +1,4 @@
+import { initDatabase } from "./db.js";
 import { syncInventory } from "./sync/inventory.js";
 import { syncOrders } from "./sync/orders.js";
 import { syncProducts } from "./sync/products.js";
@@ -5,6 +6,7 @@ import { syncProducts } from "./sync/products.js";
 const job = process.argv[2] ?? "all";
 
 async function main(): Promise<void> {
+  await initDatabase();
   switch (job) {
     case "products":
       await syncProducts();

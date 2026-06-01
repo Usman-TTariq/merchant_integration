@@ -1,10 +1,7 @@
-import Database from "better-sqlite3";
-import { config } from "../config.js";
+import { querySyncLogs } from "../db.js";
+import { initDatabase } from "../db.js";
 
-const db = new Database(config.sync.databasePath);
-const latest = db
-  .prepare(
-    "SELECT datetime(created_at, 'localtime') AS at, level, job, message FROM sync_log ORDER BY id DESC LIMIT 5"
-  )
-  .all();
+await initDatabase();
+
+const { rows: latest } = await querySyncLogs({ page: 1, limit: 5 });
 console.log(JSON.stringify(latest, null, 2));

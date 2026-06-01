@@ -1,16 +1,9 @@
-import "dotenv/config";
 import { KoronaClient } from "../clients/korona.js";
-import { getDb } from "../db.js";
+import { findShipheroSku, initDatabase } from "../db.js";
+
+await initDatabase();
 
 const korona = new KoronaClient();
-const db = getDb();
-
-const skuByProductId = db.prepare(
-  "SELECT shiphero_sku FROM product_mappings WHERE korona_product_id = ?"
-);
-const skuByProductNumber = db.prepare(
-  "SELECT shiphero_sku FROM product_mappings WHERE korona_product_number = ?"
-);
 
 console.log("=== Korona Receipts Inspection ===\n");
 
@@ -39,14 +32,10 @@ for await (const batch of korona.paginate((page) => korona.getReceipts({ page })
       const qty = Math.abs(line.quantity ?? 0);
       const productId = line.product?.id;
       const productNumber = line.product?.number ?? line.recognitionCode;
-      const mapped =
-        (productId ? (skuByProductId.get(productId) as { shiphero_sku: string } | undefined) : undefined) ??
-        (productNumber
-          ? (skuByProductNumber.get(productNumber) as { shiphero_sku: string } | undefined)
-          : undefined);
+      const mappedSku = await findShipheroSku(productId, productNumber);
 
       console.log(
-        `  - qty=${qty} product=${productNumber ?? productId ?? "?"} mapped_sku=${mapped?.shiphero_sku ?? "NO"}`
+        `  - qty=${qty} product=${productNumber ?? productId ?? "?"} mapped_sku=${mappedSku ?? "NO"}`
       );
     }
     console.log("");
