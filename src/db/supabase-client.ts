@@ -1,3 +1,4 @@
+import ws from "ws";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { config } from "../config.js";
 
@@ -10,7 +11,14 @@ export function getSupabase(): SupabaseClient {
   if (!url || !key) {
     throw new Error("Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
   }
-  client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+
+  // Node 20 (Vercel default) has no native WebSocket — required by @supabase/realtime-js
+  client = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: {
+      transport: ws as never,
+    },
+  });
   return client;
 }
 
