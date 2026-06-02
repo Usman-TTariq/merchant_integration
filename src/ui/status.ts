@@ -131,3 +131,21 @@ export async function getKoronaOrdersLive(page = 1) {
     })),
   };
 }
+
+export async function getKoronaReceiptsLive(page = 1) {
+  const korona = new KoronaClient();
+  const list = await korona.getReceipts({ page });
+  return {
+    total: list.resultsTotal ?? 0,
+    pages: list.pagesTotal ?? 1,
+    page: list.currentPage ?? page,
+    receipts: (list.results ?? []).map((r) => ({
+      id: r.id,
+      number: r.number ?? "",
+      revision: r.revision ?? null,
+      lineCount: (r.sales ?? []).length,
+      creationTime: r.creationTime ?? "",
+      modificationTime: r.modificationTime ?? "",
+    })),
+  };
+}

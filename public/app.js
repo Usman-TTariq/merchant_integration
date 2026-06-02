@@ -5,6 +5,7 @@ const state = {
   mappingsPage: 1,
   ordersPage: 1,
   receiptsPage: 1,
+  koronaReceiptsPage: 1,
   logsPage: 1,
   productSearch: "",
   logLevel: "",
@@ -205,12 +206,33 @@ async function loadOrders() {
 
 async function loadReceipts() {
   const data = await api(`/api/receipts?page=${state.receiptsPage}&limit=50`);
+  const hintEl = document.getElementById("receipts-hint");
+  hintEl.textContent = data.hint ?? "";
+  hintEl.hidden = !data.hint;
+
   document.getElementById("receipts-table").innerHTML = table(
     ["Receipt ID", "Processed at"],
     data.rows.map((r) => [esc(r.receipt_id), esc(r.processed_at)])
   );
   pager("receipts-pager", data.page, data.total, data.limit, (p) => {
     state.receiptsPage = p;
+    loadReceipts();
+  });
+
+  const live = await api(`/api/korona/receipts?page=${state.koronaReceiptsPage}`);
+  document.getElementById("korona-receipts-table").innerHTML = table(
+    ["Number", "ID", "Sale lines", "Revision", "Created", "Modified"],
+    live.receipts.map((r) => [
+      esc(r.number),
+      `<code>${esc(r.id)}</code>`,
+      esc(r.lineCount),
+      esc(r.revision ?? ""),
+      esc(r.creationTime),
+      esc(r.modificationTime),
+    ])
+  );
+  pager("korona-receipts-pager", live.page, live.total, 100, (p) => {
+    state.koronaReceiptsPage = p;
     loadReceipts();
   });
 }

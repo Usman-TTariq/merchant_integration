@@ -13,10 +13,15 @@ import {
   getLogs,
   getOrdersWithMeta,
   getProducts,
-  getReceipts,
+  getReceiptsWithMeta,
   getStats,
 } from "./dashboard-data.js";
-import { getDashboardStatus, getKoronaOrdersLive, getKoronaProductsLive } from "./status.js";
+import {
+  getDashboardStatus,
+  getKoronaOrdersLive,
+  getKoronaProductsLive,
+  getKoronaReceiptsLive,
+} from "./status.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
@@ -110,7 +115,15 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     }
 
     if (req.method === "GET" && url.pathname === "/api/receipts") {
-      return sendJson(res, 200, await getReceipts(Number(q.page ?? 1), Number(q.limit ?? 50)));
+      return sendJson(
+        res,
+        200,
+        await getReceiptsWithMeta(Number(q.page ?? 1), Number(q.limit ?? 50))
+      );
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/korona/receipts") {
+      return sendJson(res, 200, await getKoronaReceiptsLive(Number(q.page ?? 1)));
     }
 
     if (req.method === "GET" && url.pathname === "/api/logs") {

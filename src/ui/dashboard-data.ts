@@ -8,6 +8,7 @@ import {
   querySyncLogs,
 } from "../db.js";
 import { KoronaClient } from "../clients/korona.js";
+import { getKoronaReceiptsLive } from "./status.js";
 
 export interface DashboardStats {
   productMappings: number;
@@ -78,6 +79,35 @@ export async function getOrdersWithMeta(page = 1, limit = 50) {
 export async function getReceipts(page = 1, limit = 50) {
   const { rows, total } = await queryProcessedReceipts({ page, limit });
   return { rows, total, page, limit };
+}
+
+export async function getReceiptsWithMeta(page = 1, limit = 50) {
+  const result = await getReceipts(page, limit);
+  let koronaTotal = 0;
+  try {
+    const live = await getKoronaReceiptsLive(1);
+    koronaTotal = live.total;
+  } catch {
+    koronaTotal = -1;
+  }
+
+  let hint: string | undefined;
+  if (result.total === 0) {
+    if (koronaTotal === 0) {
+      hint = "No receipts in Korona yet. Sales receipts appear after POS transactions.";
+    } else if (koronaTotal > 0) {
+      hint = `${koronaTotal} receipt(s) in Korona but none processed yet. Run Sync Inventory to push sales to ShipHero.`;
+    } else {
+      hint = "Could not reach Korona to check receipts.";
+    }
+  }
+
+  return {
+    ...result,
+    source: "processed_receipts",
+    koronaReceiptsTotal: Math.max(koronaTotal, 0),
+    hint,
+  };
 }
 
 export async function getLogs(page = 1, limit = 100, level = "") {

@@ -10,8 +10,8 @@
   <div class="app">
     <header class="header">
       <div class="header-left">
-        <h1>Korona ↔ ShipHero</h1>
-        <p class="subtitle">Sync monitor &amp; data explorer</p>
+        <h1>KORONA ↔ ShipHero</h1>
+        <p class="subtitle">Sync monitor &amp; data explorer — Studio-style dashboard</p>
       </div>
       <div class="header-right">
         <div id="status-korona" class="badge loading">Korona …</div>
@@ -82,9 +82,13 @@
       </section>
 
       <section id="tab-receipts" class="tab-panel">
-        <h2>Processed Receipts</h2>
+        <h2>Processed Receipts (synced to ShipHero)</h2>
+        <p id="receipts-hint" class="hint"></p>
         <div id="receipts-table" class="table-wrap"></div>
         <div class="pager" id="receipts-pager"></div>
+        <h2 class="section-gap">Korona Receipts (live)</h2>
+        <div id="korona-receipts-table" class="table-wrap"></div>
+        <div class="pager" id="korona-receipts-pager"></div>
       </section>
 
       <section id="tab-logs" class="tab-panel">
