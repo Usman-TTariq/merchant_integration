@@ -100,11 +100,22 @@ function parseQuery(url: URL): Record<string, string> {
   return out;
 }
 
+function serveFavicon(res: http.ServerResponse): boolean {
+  const full = path.join(PUBLIC_DIR, "favicon.ico");
+  if (!fs.existsSync(full)) return false;
+  res.writeHead(200, {
+    "Content-Type": "image/x-icon",
+    "Cache-Control": "public, max-age=86400",
+  });
+  fs.createReadStream(full).pipe(res);
+  return true;
+}
+
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  let filePath = url.pathname === "/" ? "/index.html" : url.pathname;
-  filePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, "");
-  const full = path.join(PUBLIC_DIR, filePath);
+  const relative =
+    url.pathname === "/" ? "index.html" : url.pathname.replace(/^\//, "").replace(/^(\.\.[/\\])+/, "");
+  const full = path.join(PUBLIC_DIR, relative);
 
   if (!full.startsWith(PUBLIC_DIR) || !fs.existsSync(full) || fs.statSync(full).isDirectory()) {
     return false;
@@ -268,6 +279,10 @@ const server = http.createServer((req, res) => {
 
 export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
+  if (url.pathname === "/favicon.ico") {
+    if (serveFavicon(res)) return;
+  }
 
   if (req.url?.startsWith("/api/")) {
     await handleApi(req, res);
