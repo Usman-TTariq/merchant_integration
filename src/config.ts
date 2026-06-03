@@ -91,6 +91,10 @@ export const config = {
     inventory: optional("CRON_INVENTORY") ?? "*/15 * * * *",
     orders: optional("CRON_ORDERS") ?? "*/10 * * * *",
   },
+  dashboard: {
+    /** IANA timezone for UI timestamps (default: US Pacific). */
+    displayTimezone: optional("DISPLAY_TIMEZONE") ?? "America/Los_Angeles",
+  },
 } as const;
 
 export function requireShipheroWarehouseId(): string {

@@ -18,6 +18,7 @@ export interface DashboardStatus {
     shipheroAuthMode: string;
     databaseProvider: string;
     databaseDetail: string;
+    displayTimezone: string;
   };
 }
 
@@ -75,6 +76,7 @@ export async function getDashboardStatus(): Promise<DashboardStatus> {
         config.database.provider === "supabase"
           ? (config.database.supabaseUrl ?? "supabase")
           : config.database.sqlitePath,
+      displayTimezone: config.dashboard.displayTimezone,
     },
   };
 }

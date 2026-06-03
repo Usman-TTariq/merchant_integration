@@ -1,3 +1,5 @@
+const DEFAULT_TIMEZONE = "America/Los_Angeles";
+
 const state = {
   tab: "overview",
   koronaPage: 1,
@@ -9,7 +11,33 @@ const state = {
   logsPage: 1,
   productSearch: "",
   logLevel: "",
+  displayTimezone: DEFAULT_TIMEZONE,
 };
+
+function formatTime(value) {
+  if (value == null || value === "") return "";
+  const raw = String(value).trim();
+  const normalized =
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw) && !raw.includes("T")
+      ? `${raw.replace(" ", "T")}Z`
+      : raw;
+  const d = new Date(normalized);
+  if (Number.isNaN(d.getTime())) return raw;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: state.displayTimezone,
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZoneName: "short",
+    }).format(d);
+  } catch {
+    return raw;
+  }
+}
+
+function fmtTime(value) {
+  return esc(formatTime(value));
+}
 
 async function api(path, options) {
   const res = await fetch(path, options);
@@ -60,6 +88,7 @@ function renderConfig(status) {
     <div><dt>ShipHero auth</dt><dd>${esc(cfg.shipheroAuthMode)}</dd></div>
     <div><dt>Warehouse ID</dt><dd>${esc(cfg.warehouseId ?? "not set")}</dd></div>
     <div><dt>Database</dt><dd>${esc(cfg.databaseProvider)} — ${esc(cfg.databaseDetail ?? "")}</dd></div>
+    <div><dt>Display timezone</dt><dd>${esc(cfg.displayTimezone ?? DEFAULT_TIMEZONE)}</dd></div>
     <div><dt>Korona detail</dt><dd>${esc(status.korona.detail ?? "")}</dd></div>
     <div><dt>ShipHero detail</dt><dd>${esc(status.shiphero.detail ?? "")}</dd></div>
   `;
@@ -118,6 +147,9 @@ async function loadOverview() {
   const cursors = results[2].status === "fulfilled" ? results[2].value : [];
 
   if (status) {
+    if (status.config?.displayTimezone) {
+      state.displayTimezone = status.config.displayTimezone;
+    }
     setBadge("status-korona", status.korona.ok, "Korona", status.korona.detail);
     setBadge("status-shiphero", status.shiphero.ok, "ShipHero", status.shiphero.detail);
     renderConfig(status);
@@ -127,7 +159,7 @@ async function loadOverview() {
 
   document.getElementById("cursors").innerHTML = table(
     ["Key", "Value", "Updated"],
-    cursors.map((c) => [esc(c.key), esc(c.value), esc(c.updated_at)])
+    cursors.map((c) => [esc(c.key), esc(c.value), fmtTime(c.updated_at)])
   );
 }
 
@@ -159,7 +191,7 @@ async function loadMappings() {
       esc(r.korona_product_number),
       `<strong>${esc(r.shiphero_sku)}</strong>`,
       esc(r.korona_revision ?? ""),
-      esc(r.updated_at),
+      fmtTime(r.updated_at),
       `<code>${esc(r.korona_product_id)}</code>`,
     ])
   );
@@ -182,7 +214,7 @@ async function loadOrders() {
       esc(r.korona_order_type),
       esc(r.shiphero_order_number),
       esc(r.shiphero_order_id),
-      esc(r.created_at),
+      fmtTime(r.created_at),
     ])
   );
   pager("orders-pager", data.page, data.total, data.limit, (p) => {
@@ -198,7 +230,7 @@ async function loadOrders() {
       `<code>${esc(o.id)}</code>`,
       esc(o.lineCount),
       esc(o.revision ?? ""),
-      esc(o.creationTime),
+      fmtTime(o.creationTime),
       o.deleted ? "yes" : "no",
     ])
   );
@@ -216,7 +248,7 @@ async function loadReceipts() {
 
   document.getElementById("receipts-table").innerHTML = table(
     ["Receipt ID", "Processed at"],
-    data.rows.map((r) => [esc(r.receipt_id), esc(r.processed_at)])
+    data.rows.map((r) => [esc(r.receipt_id), fmtTime(r.processed_at)])
   );
   pager("receipts-pager", data.page, data.total, data.limit, (p) => {
     state.receiptsPage = p;
@@ -231,8 +263,8 @@ async function loadReceipts() {
       `<code>${esc(r.id)}</code>`,
       esc(r.lineCount),
       esc(r.revision ?? ""),
-      esc(r.creationTime),
-      esc(r.modificationTime),
+      fmtTime(r.creationTime),
+      fmtTime(r.modificationTime),
     ])
   );
   pager("korona-receipts-pager", live.page, live.total, 100, (p) => {
@@ -247,7 +279,7 @@ async function loadLogs() {
   document.getElementById("logs-table").innerHTML = table(
     ["Time", "Job", "Level", "Message"],
     data.rows.map((r) => [
-      esc(r.created_at),
+      fmtTime(r.created_at),
       esc(r.job),
       `<span class="level-${esc(r.level)}">${esc(r.level)}</span>`,
       esc(r.message),
