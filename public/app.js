@@ -29,15 +29,15 @@ function formatTime(value) {
   const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return raw;
   try {
-    return new Intl.DateTimeFormat("en-US", {
+    const formatted = new Intl.DateTimeFormat("en-US", {
       timeZone: state.displayTimezone,
       month: "short",
       day: "numeric",
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
-      timeZoneName: "short",
     }).format(d);
+    return `${formatted} PT`;
   } catch {
     return raw;
   }
@@ -93,7 +93,7 @@ function renderConfig(status) {
   document.getElementById("config-list").innerHTML = `
     <div><dt>Korona Account</dt><dd>${esc(cfg.accountId)}</dd></div>
     <div><dt>Korona detail</dt><dd>${esc(status.korona.detail ?? "")}</dd></div>
-    <div><dt>Display timezone</dt><dd>${esc(cfg.displayTimezone ?? DEFAULT_TIMEZONE)}</dd></div>
+    <div><dt>Display timezone</dt><dd>Pacific Time (PT)</dd></div>
   `;
 }
 

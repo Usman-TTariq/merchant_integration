@@ -11,15 +11,15 @@ export function formatDisplayTime(value: string | null | undefined): string {
   const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return raw;
   try {
-    return new Intl.DateTimeFormat("en-US", {
+    const formatted = new Intl.DateTimeFormat("en-US", {
       timeZone: config.dashboard.displayTimezone,
       month: "short",
       day: "numeric",
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
-      timeZoneName: "short",
     }).format(d);
+    return `${formatted} PT`;
   } catch {
     return raw;
   }
