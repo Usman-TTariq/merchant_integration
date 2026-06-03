@@ -110,7 +110,13 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): boole
   }
 
   const ext = path.extname(full);
-  res.writeHead(200, { "Content-Type": MIME[ext] ?? "application/octet-stream" });
+  const headers: Record<string, string> = {
+    "Content-Type": MIME[ext] ?? "application/octet-stream",
+  };
+  if (ext === ".html" || ext === ".js" || ext === ".css") {
+    headers["Cache-Control"] = "no-cache, must-revalidate";
+  }
+  res.writeHead(200, headers);
   fs.createReadStream(full).pipe(res);
   return true;
 }

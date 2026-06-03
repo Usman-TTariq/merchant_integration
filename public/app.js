@@ -14,9 +14,14 @@ const state = {
   displayTimezone: DEFAULT_TIMEZONE,
 };
 
+function looksLikeIsoTimestamp(value) {
+  return /^\d{4}-\d{2}-\d{2}T/.test(value) || /[+-]\d{2}:\d{2}$/.test(value) || value.endsWith("Z");
+}
+
 function formatTime(value) {
   if (value == null || value === "") return "";
   const raw = String(value).trim();
+  if (!looksLikeIsoTimestamp(raw)) return raw;
   const normalized =
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw) && !raw.includes("T")
       ? `${raw.replace(" ", "T")}Z`

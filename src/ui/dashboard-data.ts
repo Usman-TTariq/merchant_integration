@@ -8,6 +8,7 @@ import {
   querySyncLogs,
 } from "../db.js";
 import { KoronaClient } from "../clients/korona.js";
+import { formatRowTimes } from "./format-time.js";
 import { getKoronaReceiptsLive } from "./status.js";
 
 export interface DashboardStats {
@@ -29,17 +30,23 @@ export async function getStats(): Promise<DashboardStats> {
 }
 
 export async function getCursors(): Promise<Array<{ key: string; value: string; updated_at: string }>> {
-  return getAllCursors();
+  const rows = await getAllCursors();
+  return formatRowTimes(rows, ["updated_at"]);
 }
 
 export async function getProducts(page = 1, limit = 50, search = "") {
   const { rows, total } = await queryProductMappings({ page, limit, search });
-  return { rows, total, page, limit };
+  return {
+    rows: formatRowTimes(rows as Record<string, unknown>[], ["updated_at"]),
+    total,
+    page,
+    limit,
+  };
 }
 
 export function getOrders(page = 1, limit = 50) {
   return queryOrderMappings({ page, limit }).then(({ rows, total }: { rows: Record<string, unknown>[]; total: number }) => ({
-    rows,
+    rows: formatRowTimes(rows, ["created_at"]),
     total,
     page,
     limit,
@@ -78,7 +85,12 @@ export async function getOrdersWithMeta(page = 1, limit = 50) {
 
 export async function getReceipts(page = 1, limit = 50) {
   const { rows, total } = await queryProcessedReceipts({ page, limit });
-  return { rows, total, page, limit };
+  return {
+    rows: formatRowTimes(rows as Record<string, unknown>[], ["processed_at"]),
+    total,
+    page,
+    limit,
+  };
 }
 
 export async function getReceiptsWithMeta(page = 1, limit = 50) {
@@ -112,5 +124,10 @@ export async function getReceiptsWithMeta(page = 1, limit = 50) {
 
 export async function getLogs(page = 1, limit = 100, level = "") {
   const { rows, total } = await querySyncLogs({ page, limit, level: level || undefined });
-  return { rows, total, page, limit };
+  return {
+    rows: formatRowTimes(rows as Record<string, unknown>[], ["created_at"]),
+    total,
+    page,
+    limit,
+  };
 }

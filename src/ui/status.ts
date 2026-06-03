@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
+import { formatDisplayTime } from "./format-time.js";
 
 export interface ServiceStatus {
   ok: boolean;
@@ -129,7 +130,7 @@ export async function getKoronaOrdersLive(page = 1) {
       deleted: Boolean(o.deleted),
       revision: o.revision ?? null,
       lineCount: (o.items ?? o.orderLines ?? []).length,
-      creationTime: o.creationTime ?? "",
+      creationTime: formatDisplayTime(o.creationTime),
     })),
   };
 }
@@ -146,8 +147,8 @@ export async function getKoronaReceiptsLive(page = 1) {
       number: r.number ?? "",
       revision: r.revision ?? null,
       lineCount: (r.sales ?? []).length,
-      creationTime: r.creationTime ?? "",
-      modificationTime: r.modificationTime ?? "",
+      creationTime: formatDisplayTime(r.creationTime),
+      modificationTime: formatDisplayTime(r.modificationTime),
     })),
   };
 }
