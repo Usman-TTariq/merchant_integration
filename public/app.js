@@ -14,6 +14,10 @@ const state = {
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json();
+  if (res.status === 401 && data.authenticated === false) {
+    window.location.href = "/login.html";
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) throw new Error(data.error ?? res.statusText);
   return data;
 }
@@ -292,6 +296,11 @@ document.querySelectorAll(".tab").forEach((btn) => {
 });
 
 document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+
+document.getElementById("btn-logout").addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  window.location.href = "/login.html";
+});
 
 document.querySelectorAll("[data-sync]").forEach((btn) => {
   btn.addEventListener("click", async () => {

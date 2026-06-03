@@ -81,6 +81,8 @@ In ShipHero GraphQL Playground or a `warehouses` query, copy the base64 `warehou
 
 - Rotate any credentials that were shared in chat or tickets.
 - Keep secrets only in `.env`.
+- **Dashboard login:** set `DASHBOARD_PASSWORD` in `.env` (local) and in Vercel → Environment Variables (production). Without it, the UI is not password-protected.
+- For Korona POS **External System Call**, you can use the same password in the call’s Login/Password fields (HTTP basic) or sign in on the login page after opening the Display URL.
 
 ## Build
 

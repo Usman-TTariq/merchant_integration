@@ -17,6 +17,15 @@ import {
   getStats,
 } from "./dashboard-data.js";
 import {
+  clearSessionCookieHeader,
+  createSessionToken,
+  isAuthenticated,
+  isDashboardAuthEnabled,
+  isPublicPath,
+  sessionCookieHeader,
+  verifyPassword,
+} from "./auth.js";
+import {
   getDashboardStatus,
   getKoronaOrdersLive,
   getKoronaProductsLive,
@@ -42,6 +51,44 @@ const MIME: Record<string, string> = {
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
+}
+
+function isSecureRequest(req: http.IncomingMessage): boolean {
+  if (process.env.VERCEL) return true;
+  const proto = req.headers["x-forwarded-proto"];
+  return proto === "https";
+}
+
+function redirect(res: http.ServerResponse, location: string): void {
+  res.writeHead(302, { Location: location });
+  res.end();
+}
+
+async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+  if (!raw) return {};
+  return JSON.parse(raw) as unknown;
+}
+
+function enforceAuth(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  pathname: string
+): boolean {
+  if (!isDashboardAuthEnabled() || isPublicPath(pathname)) return true;
+  if (isAuthenticated(req)) return true;
+
+  if (pathname.startsWith("/api/")) {
+    sendJson(res, 401, { error: "Unauthorized", authenticated: false });
+    return false;
+  }
+
+  redirect(res, "/login.html");
+  return false;
 }
 
 function parseQuery(url: URL): Record<string, string> {
@@ -73,6 +120,33 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
   const q = parseQuery(url);
 
   try {
+    if (req.method === "POST" && url.pathname === "/api/auth/login") {
+      if (!isDashboardAuthEnabled()) {
+        return sendJson(res, 200, { ok: true, authenticated: true, authDisabled: true });
+      }
+      const body = (await readJsonBody(req)) as { password?: string };
+      if (!verifyPassword(body.password ?? "")) {
+        return sendJson(res, 401, { error: "Invalid password" });
+      }
+      const token = createSessionToken();
+      res.setHeader("Set-Cookie", sessionCookieHeader(token, isSecureRequest(req)));
+      return sendJson(res, 200, { ok: true, authenticated: true });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+      res.setHeader("Set-Cookie", clearSessionCookieHeader(isSecureRequest(req)));
+      return sendJson(res, 200, { ok: true, authenticated: false });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/auth/session") {
+      return sendJson(res, 200, {
+        authenticated: isAuthenticated(req),
+        authEnabled: isDashboardAuthEnabled(),
+      });
+    }
+
+    if (!enforceAuth(req, res, url.pathname)) return;
+
     if (req.url?.startsWith("/api/") && url.pathname !== "/api/health") {
       await initDatabase();
     }
@@ -186,10 +260,20 @@ const server = http.createServer((req, res) => {
 });
 
 export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
   if (req.url?.startsWith("/api/")) {
     await handleApi(req, res);
     return;
   }
+
+  if (isDashboardAuthEnabled() && isAuthenticated(req) && (url.pathname === "/login" || url.pathname === "/login.html")) {
+    redirect(res, "/");
+    return;
+  }
+
+  if (!enforceAuth(req, res, url.pathname)) return;
+
   if (serveStatic(req, res)) return;
   sendJson(res, 404, { error: "Not found" });
 }
