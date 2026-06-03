@@ -115,6 +115,7 @@ export function isPublicPath(pathname: string): boolean {
   return (
     pathname === "/login" ||
     pathname === "/login.html" ||
+    pathname === "/favicon.ico" ||
     pathname === "/styles.css" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/session" ||
