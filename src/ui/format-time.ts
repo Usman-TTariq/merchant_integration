@@ -13,8 +13,11 @@ export function formatDisplayTime(value: string | null | undefined): string {
   try {
     return new Intl.DateTimeFormat("en-US", {
       timeZone: config.dashboard.displayTimezone,
-      dateStyle: "medium",
-      timeStyle: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
       timeZoneName: "short",
     }).format(d);
   } catch {

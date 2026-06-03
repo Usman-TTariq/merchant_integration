@@ -31,8 +31,11 @@ function formatTime(value) {
   try {
     return new Intl.DateTimeFormat("en-US", {
       timeZone: state.displayTimezone,
-      dateStyle: "medium",
-      timeStyle: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
       timeZoneName: "short",
     }).format(d);
   } catch {
@@ -89,13 +92,8 @@ function renderConfig(status) {
   const cfg = status.config;
   document.getElementById("config-list").innerHTML = `
     <div><dt>Korona Account</dt><dd>${esc(cfg.accountId)}</dd></div>
-    <div><dt>SKU field</dt><dd>${esc(cfg.skuField)}</dd></div>
-    <div><dt>ShipHero auth</dt><dd>${esc(cfg.shipheroAuthMode)}</dd></div>
-    <div><dt>Warehouse ID</dt><dd>${esc(cfg.warehouseId ?? "not set")}</dd></div>
-    <div><dt>Database</dt><dd>${esc(cfg.databaseProvider)} — ${esc(cfg.databaseDetail ?? "")}</dd></div>
-    <div><dt>Display timezone</dt><dd>${esc(cfg.displayTimezone ?? DEFAULT_TIMEZONE)}</dd></div>
     <div><dt>Korona detail</dt><dd>${esc(status.korona.detail ?? "")}</dd></div>
-    <div><dt>ShipHero detail</dt><dd>${esc(status.shiphero.detail ?? "")}</dd></div>
+    <div><dt>Display timezone</dt><dd>${esc(cfg.displayTimezone ?? DEFAULT_TIMEZONE)}</dd></div>
   `;
 }
 
