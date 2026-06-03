@@ -18,6 +18,7 @@
     "progress": "tsx src/scripts/progress.ts",
     "db:setup": "tsx src/scripts/setup-supabase.ts",
     "ui": "tsx src/ui/server.ts",
+    "favicon": "powershell -ExecutionPolicy Bypass -File scripts/extract-ico.ps1 && node scripts/generate-favicon.mjs",
     "dev": "tsx src/cli.ts"
   },
   "engines": {

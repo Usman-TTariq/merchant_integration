@@ -47,6 +47,7 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
+  ".png": "image/png",
 };
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {

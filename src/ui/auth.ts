@@ -116,6 +116,8 @@ export function isPublicPath(pathname: string): boolean {
     pathname === "/login" ||
     pathname === "/login.html" ||
     pathname === "/favicon.ico" ||
+    pathname.startsWith("/favicon-") ||
+    pathname === "/apple-touch-icon.png" ||
     pathname === "/styles.css" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/session" ||

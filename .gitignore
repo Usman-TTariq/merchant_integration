@@ -5,3 +5,4 @@ data/
 *.db
 *.log
 .DS_Store
+public/favicon-source.png
