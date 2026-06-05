@@ -1,6 +1,7 @@
 import { config } from "../config.js";
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
+import { receiptSaleLines } from "../utils/korona-receipt.js";
 import { formatDisplayTime } from "./format-time.js";
 
 export interface ServiceStatus {
@@ -146,7 +147,7 @@ export async function getKoronaReceiptsLive(page = 1) {
       id: r.id,
       number: r.number ?? "",
       revision: r.revision ?? null,
-      lineCount: (r.sales ?? []).length,
+      lineCount: receiptSaleLines(r).length,
       creationTime: formatDisplayTime(r.creationTime),
       modificationTime: formatDisplayTime(r.modificationTime),
     })),

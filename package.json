@@ -7,6 +7,8 @@
     "build": "tsc",
     "sync:products": "tsx src/cli.ts products",
     "sync:inventory": "tsx src/cli.ts inventory",
+    "receipts:reset": "tsx src/scripts/reset-receipt-sync.ts",
+    "receipts:inspect": "tsx src/scripts/inspect-receipts.ts",
     "sync:orders": "tsx src/cli.ts orders",
     "sync:all": "tsx src/cli.ts all",
     "start": "tsx src/scheduler.ts",

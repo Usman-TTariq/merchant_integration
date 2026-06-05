@@ -12,6 +12,7 @@ import {
   markReceiptProcessed,
   setCursor,
 } from "../db.js";
+import { receiptHasSaleLines, receiptSaleLines } from "../utils/korona-receipt.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type { KoronaReceipt, KoronaSaleLine } from "../types/korona.js";
 
@@ -47,7 +48,7 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
       if (await isReceiptProcessed(receipt.id)) continue;
 
       let full: KoronaReceipt = receipt;
-      if (!receipt.sales?.length) {
+      if (!receiptHasSaleLines(receipt)) {
         try {
           full = await korona.getReceipt(receipt.id);
         } catch {
@@ -55,7 +56,7 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
         }
       }
 
-      for (const line of full.sales ?? []) {
+      for (const line of receiptSaleLines(full)) {
         const qty = saleQuantity(line);
         if (qty <= 0) continue;
 

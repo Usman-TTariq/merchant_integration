@@ -27,13 +27,25 @@ export interface KoronaSaleLine {
   price?: number;
 }
 
+export interface KoronaReceiptItem {
+  quantity?: number;
+  product?: KoronaReference;
+  description?: string;
+  recognitionNumber?: string;
+  recognitionCode?: string;
+  type?: string;
+}
+
 export interface KoronaReceipt {
   id: string;
   revision?: number;
   number?: string;
   creationTime?: string;
   modificationTime?: string;
+  /** Legacy / alternate field name in some API examples */
   sales?: KoronaSaleLine[];
+  /** Korona Cloud API v3 receipt line items */
+  items?: KoronaReceiptItem[];
 }
 
 export interface KoronaCustomerOrderLine {

@@ -1,5 +1,6 @@
 import { KoronaClient } from "../clients/korona.js";
 import { findShipheroSku, initDatabase } from "../db.js";
+import { receiptHasSaleLines, receiptSaleLines } from "../utils/korona-receipt.js";
 
 await initDatabase();
 
@@ -10,7 +11,7 @@ console.log("=== Korona Receipts Inspection ===\n");
 for await (const batch of korona.paginate((page) => korona.getReceipts({ page }))) {
   for (const receipt of batch) {
     let full = receipt;
-    if (!receipt.sales?.length) {
+    if (!receiptHasSaleLines(receipt)) {
       try {
         full = await korona.getReceipt(receipt.id);
       } catch (err) {
@@ -19,7 +20,7 @@ for await (const batch of korona.paginate((page) => korona.getReceipts({ page })
       }
     }
 
-    const sales = full.sales ?? [];
+    const sales = receiptSaleLines(full);
     console.log(`Receipt ${full.number ?? full.id} (revision ${full.revision ?? "?"})`);
     console.log(`  Sales lines: ${sales.length}`);
 
