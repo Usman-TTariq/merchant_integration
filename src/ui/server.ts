@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
-import { initDatabase, logSync } from "../db.js";
+import { deleteErrorLogs, initDatabase, logSync } from "../db.js";
 import { syncInventory } from "../sync/inventory.js";
 import { syncOrders } from "../sync/orders.js";
 import { syncProducts } from "../sync/products.js";
@@ -225,6 +225,12 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         200,
         await getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "")
       );
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/logs/clear-errors") {
+      const deleted = await deleteErrorLogs();
+      await logSync("dashboard", "info", `Cleared ${deleted} error log(s)`);
+      return sendJson(res, 200, { ok: true, deleted });
     }
 
     if (req.method === "GET" && url.pathname === "/api/korona/products") {

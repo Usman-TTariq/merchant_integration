@@ -34,6 +34,7 @@ export interface KoronaReceiptItem {
   recognitionNumber?: string;
   recognitionCode?: string;
   type?: string;
+  total?: { net?: number; gross?: number };
 }
 
 export interface KoronaReceipt {
@@ -42,6 +43,10 @@ export interface KoronaReceipt {
   number?: string;
   creationTime?: string;
   modificationTime?: string;
+  cancelled?: boolean;
+  voided?: boolean;
+  organizationalUnit?: KoronaReference;
+  pointOfSale?: KoronaReference;
   /** Legacy / alternate field name in some API examples */
   sales?: KoronaSaleLine[];
   /** Korona Cloud API v3 receipt line items */

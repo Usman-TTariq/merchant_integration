@@ -128,6 +128,7 @@ export async function findKoronaOrderIdByShiphero(shipheroOrderId: string): Prom
     .from("order_mappings")
     .select("korona_order_id")
     .eq("shiphero_order_id", shipheroOrderId)
+    .eq("korona_order_type", "customerOrder")
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data?.korona_order_id ?? null;

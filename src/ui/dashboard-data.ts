@@ -73,18 +73,16 @@ export async function getOrdersWithMeta(page = 1, limit = 50) {
 
   let hint: string | undefined;
   if (result.total === 0) {
-    if (koronaTotal === 0) {
-      if (receiptTotal > 0) {
-        hint = `Korona API reports 0 Customer Orders but ${receiptTotal} POS receipt(s). Cash register sales are receipts — use the Receipts tab + Sync Inventory (they do not appear here). Customer Orders must be created in Korona Studio → Customer Orders, not from a normal POS sale.`;
-      } else if (receiptTotal === 0) {
-        hint =
-          "Korona API reports 0 Customer Orders and 0 receipts. Create a Customer Order in Korona Studio, then run Sync Orders.";
-      } else {
-        hint = "Could not reach Korona to check orders/receipts.";
-      }
+    if (koronaTotal === 0 && receiptTotal > 0) {
+      hint = `${receiptTotal} POS receipt(s) in Korona. Run Sync Orders to create ShipHero orders from register sales (type: receipt). Sync Inventory is only needed for receipts not yet converted to orders.`;
+    } else if (koronaTotal === 0 && receiptTotal === 0) {
+      hint =
+        "No customer orders or POS receipts in Korona yet. Studio customer orders and register sales both sync via Sync Orders.";
     } else if (koronaTotal > 0) {
       hint = `${koronaTotal} customer order(s) in Korona but none synced to ShipHero yet. Run Sync Orders.`;
-    } else {
+    } else if (koronaTotal === 0 && receiptTotal < 0) {
+      hint = "Could not reach Korona to check orders/receipts.";
+    } else if (koronaTotal < 0) {
       hint = "Could not reach Korona to check customer orders.";
     }
   }

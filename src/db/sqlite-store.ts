@@ -150,7 +150,9 @@ export async function countOrderMappings(): Promise<number> {
 
 export async function findKoronaOrderIdByShiphero(shipheroOrderId: string): Promise<string | null> {
   const row = sqlite()
-    .prepare("SELECT korona_order_id FROM order_mappings WHERE shiphero_order_id = ?")
+    .prepare(
+      "SELECT korona_order_id FROM order_mappings WHERE shiphero_order_id = ? AND korona_order_type = 'customerOrder'"
+    )
     .get(shipheroOrderId) as { korona_order_id: string } | undefined;
   return row?.korona_order_id ?? null;
 }

@@ -73,6 +73,10 @@ export class KoronaClient {
     return this.request(this.accountPath(`/products${query}`));
   }
 
+  getProduct(productId: string): Promise<KoronaProduct> {
+    return this.request(this.accountPath(`/products/${productId}`));
+  }
+
   getReceipts(opts?: { revision?: number; page?: number }): Promise<KoronaResultList<KoronaReceipt>> {
     const query = this.buildQuery({
       page: opts?.page ?? 1,

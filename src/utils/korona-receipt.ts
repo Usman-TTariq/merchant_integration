@@ -10,7 +10,14 @@ export function receiptSaleLines(receipt: KoronaReceipt): KoronaSaleLine[] {
       product: item.product,
       description: item.description,
       recognitionCode: item.recognitionNumber ?? item.recognitionCode,
+      price: unitPrice(item),
     }));
+}
+
+function unitPrice(item: KoronaReceiptItem): number | undefined {
+  const qty = item.quantity ?? 0;
+  if (!qty || item.total?.net == null) return undefined;
+  return item.total.net / Math.abs(qty);
 }
 
 function isProductLine(item: KoronaReceiptItem): boolean {

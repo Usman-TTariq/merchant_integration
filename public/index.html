@@ -77,7 +77,8 @@
       </section>
 
       <section id="tab-orders" class="tab-panel">
-        <h2>Customer Order Mappings (Korona Studio → ShipHero)</h2>
+        <h2>Order Mappings (Korona → ShipHero)</h2>
+        <p class="hint">Includes POS receipts (type <code>receipt</code>) and Studio customer orders (type <code>customerOrder</code>).</p>
         <p id="orders-hint" class="hint"></p>
         <div id="orders-table" class="table-wrap"></div>
         <div class="pager" id="orders-pager"></div>
@@ -99,6 +100,7 @@
       <section id="tab-logs" class="tab-panel">
         <div class="toolbar">
           <h2>Sync Logs</h2>
+          <button id="btn-clear-errors" class="btn secondary" type="button">Clear errors</button>
           <select id="log-level" class="input">
             <option value="">All levels</option>
             <option value="info">Info</option>
@@ -111,6 +113,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=6" type="module"></script>
+  <script src="/app.js?v=8" type="module"></script>
 </body>
 </html>

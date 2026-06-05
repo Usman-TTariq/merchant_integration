@@ -218,7 +218,11 @@ export class ShipHeroClient {
     shopName: string;
     lineItems: Array<{ sku: string; quantity: number; price: string; name: string }>;
     shippingAddress: Record<string, string | undefined>;
+    fulfillmentStatus?: "pending" | "fulfilled";
   }): Promise<{ id: string; order_number: string }> {
+    const fulfillmentStatus = input.fulfillmentStatus ?? "pending";
+    const fulfilled = fulfillmentStatus === "fulfilled";
+
     const data = await this.graphql<{
       order_create: { order: { id: string; order_number: string } };
     }>(
@@ -232,17 +236,17 @@ export class ShipHeroClient {
           order_number: input.orderNumber,
           partner_order_id: input.partnerOrderId,
           shop_name: input.shopName,
-          fulfillment_status: "pending",
+          fulfillment_status: fulfillmentStatus,
           shipping_lines: { title: "Standard", price: "0.00", carrier: "Korona" },
           shipping_address: input.shippingAddress,
-          line_items: input.lineItems.map((li) => ({
+          line_items: input.lineItems.map((li, index) => ({
             sku: li.sku,
-            partner_line_item_id: `${input.partnerOrderId}-${li.sku}`,
+            partner_line_item_id: `${input.orderNumber}-${index + 1}`.slice(0, 45),
             quantity: li.quantity,
             price: li.price,
             product_name: li.name,
-            fulfillment_status: "pending",
-            quantity_pending_fulfillment: li.quantity,
+            fulfillment_status: fulfillmentStatus,
+            quantity_pending_fulfillment: fulfilled ? 0 : li.quantity,
             warehouse_id: requireShipheroWarehouseId(),
           })),
         },

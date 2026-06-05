@@ -7,6 +7,7 @@ import {
   findKoronaProductIdBySku,
   findShipheroSku,
   getCursor,
+  isOrderMapped,
   isReceiptProcessed,
   logSync,
   markReceiptProcessed,
@@ -46,6 +47,7 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
       }
 
       if (await isReceiptProcessed(receipt.id)) continue;
+      if (await isOrderMapped(receipt.id)) continue;
 
       let full: KoronaReceipt = receipt;
       if (!receiptHasSaleLines(receipt)) {
@@ -69,6 +71,16 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
           continue;
         }
 
+        const shipheroProduct = await shiphero.getProductBySku(sku);
+        if (!shipheroProduct) {
+          await logSync(
+            "inventory",
+            "warn",
+            `SKU ${sku} not in ShipHero, skipping inventory_remove for receipt ${receipt.number ?? receipt.id}`
+          );
+          continue;
+        }
+
         try {
           await shiphero.inventoryRemove(
             sku,
@@ -77,11 +89,9 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
           );
           adjustments++;
         } catch (err) {
-          await logSync(
-            "inventory",
-            "error",
-            `inventory_remove ${sku}: ${err instanceof Error ? err.message : String(err)}`
-          );
+          const msg = err instanceof Error ? err.message : String(err);
+          const level = msg.includes("not found") || msg.includes("Not Found") ? "warn" : "error";
+          await logSync("inventory", level, `inventory_remove ${sku}: ${msg}`);
         }
       }
 
