@@ -9,6 +9,7 @@
     "sync:inventory": "tsx src/cli.ts inventory",
     "receipts:reset": "tsx src/scripts/reset-receipt-sync.ts",
     "receipts:inspect": "tsx src/scripts/inspect-receipts.ts",
+    "receipts:backfill-inventory": "tsx src/scripts/backfill-receipt-order-inventory.ts",
     "sync:orders": "tsx src/cli.ts orders",
     "sync:all": "tsx src/cli.ts all",
     "start": "tsx src/scheduler.ts",
@@ -31,6 +32,7 @@
     "better-sqlite3": "^11.10.0",
     "dotenv": "^16.5.0",
     "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
     "pg": "^8.16.0",
     "ws": "^8.21.0"
   },

@@ -13,6 +13,7 @@ import {
   markReceiptProcessed,
   setCursor,
 } from "../db.js";
+import { removeInventoryForReceiptLines } from "./receipt-inventory.js";
 import { receiptHasSaleLines, receiptSaleLines } from "../utils/korona-receipt.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type { KoronaReceipt, KoronaSaleLine } from "../types/korona.js";
@@ -58,6 +59,8 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
         }
       }
 
+      const inventoryLines: Array<{ sku: string; quantity: number }> = [];
+
       for (const line of receiptSaleLines(full)) {
         const qty = saleQuantity(line);
         if (qty <= 0) continue;
@@ -71,29 +74,16 @@ export async function syncInventoryFromKorona(): Promise<{ receipts: number; adj
           continue;
         }
 
-        const shipheroProduct = await shiphero.getProductBySku(sku);
-        if (!shipheroProduct) {
-          await logSync(
-            "inventory",
-            "warn",
-            `SKU ${sku} not in ShipHero, skipping inventory_remove for receipt ${receipt.number ?? receipt.id}`
-          );
-          continue;
-        }
-
-        try {
-          await shiphero.inventoryRemove(
-            sku,
-            qty,
-            `Korona receipt ${receipt.number ?? receipt.id}`
-          );
-          adjustments++;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          const level = msg.includes("not found") || msg.includes("Not Found") ? "warn" : "error";
-          await logSync("inventory", level, `inventory_remove ${sku}: ${msg}`);
-        }
+        inventoryLines.push({ sku, quantity: Math.round(qty) });
       }
+
+      const receiptNumber = String(receipt.number ?? receipt.id);
+      adjustments += await removeInventoryForReceiptLines(
+        shiphero,
+        inventoryLines,
+        receiptNumber,
+        "inventory"
+      );
 
       await markReceiptProcessed(receipt.id);
       receipts++;

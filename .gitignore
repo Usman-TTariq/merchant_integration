@@ -1,8 +1,8 @@
 node_modules/
 dist/
-.env
 data/
 *.db
 *.log
 .DS_Store
 public/favicon-source.png
+config.bat

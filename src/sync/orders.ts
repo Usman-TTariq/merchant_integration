@@ -5,9 +5,12 @@ import {
   getCursor,
   insertOrderMapping,
   isOrderMapped,
+  isReceiptProcessed,
   logSync,
+  markReceiptProcessed,
   setCursor,
 } from "../db.js";
+import { removeInventoryForReceiptLines } from "./receipt-inventory.js";
 import { receiptHasSaleLines, receiptSaleLines } from "../utils/korona-receipt.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type {
@@ -147,6 +150,39 @@ function isReceiptEligible(receipt: KoronaReceipt): boolean {
   return receiptHasSaleLines(receipt);
 }
 
+async function buildReceiptLineItems(
+  shiphero: ShipHeroClient,
+  full: KoronaReceipt
+): Promise<ShipHeroLineItem[]> {
+  const receiptLabel = `Receipt ${full.number ?? full.id}`;
+  return filterShipHeroSkus(
+    shiphero,
+    await lineItemsFromSaleLines(receiptSaleLines(full), receiptLabel),
+    receiptLabel
+  );
+}
+
+async function deductReceiptInventoryIfNeeded(
+  shiphero: ShipHeroClient,
+  receipt: KoronaReceipt,
+  lineItems: ShipHeroLineItem[],
+  force = false
+): Promise<void> {
+  const receiptNumber = receipt.number ?? receipt.id;
+  if (!force && (await isReceiptProcessed(receipt.id))) {
+    await logSync(
+      "orders",
+      "info",
+      `Receipt ${receiptNumber}: inventory already processed, skipped inventory_remove`
+    );
+    return;
+  }
+
+  const adjustments = await removeInventoryForReceiptLines(shiphero, lineItems, String(receiptNumber));
+  await markReceiptProcessed(receipt.id);
+  await logSync("orders", "info", `Receipt ${receiptNumber}: inventory adjustments=${adjustments}`);
+}
+
 async function syncCustomerOrders(): Promise<{ created: number; skipped: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
@@ -256,13 +292,28 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
         }
       };
 
+      let full: KoronaReceipt = receipt;
+
       if (await isOrderMapped(receipt.id)) {
         bumpRevision();
+        if (!isReceiptEligible(receipt) && !receiptHasSaleLines(receipt) && !receipt.cancelled && !receipt.voided) {
+          try {
+            full = await korona.getReceipt(receipt.id);
+          } catch {
+            skipped++;
+            continue;
+          }
+        }
+        if (isReceiptEligible(full) && !(await isReceiptProcessed(full.id))) {
+          const existingLines = await buildReceiptLineItems(shiphero, full);
+          if (existingLines.length) {
+            await deductReceiptInventoryIfNeeded(shiphero, full, existingLines);
+          }
+        }
         skipped++;
         continue;
       }
 
-      let full: KoronaReceipt = receipt;
       if (!isReceiptEligible(receipt)) {
         if (!receiptHasSaleLines(receipt) && !receipt.cancelled && !receipt.voided) {
           try {
@@ -281,12 +332,7 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
         continue;
       }
 
-      const receiptLabel = `Receipt ${full.number ?? full.id}`;
-      const lineItems = await filterShipHeroSkus(
-        shiphero,
-        await lineItemsFromSaleLines(receiptSaleLines(full), receiptLabel),
-        receiptLabel
-      );
+      const lineItems = await buildReceiptLineItems(shiphero, full);
       if (!lineItems.length) {
         bumpRevision();
         skipped++;
@@ -313,6 +359,7 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
           shipheroOrderId: createdOrder.id,
           shipheroOrderNumber: createdOrder.order_number,
         });
+        await deductReceiptInventoryIfNeeded(shiphero, full, lineItems);
         bumpRevision();
         created++;
         await logSync(
