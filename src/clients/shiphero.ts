@@ -211,7 +211,7 @@ export class ShipHeroClient {
     }
 
     await this.graphql(
-      `mutation InventoryReplace($data: UpdateInventoryInput!) {
+      `mutation InventoryReplace($data: ReplaceInventoryInput!) {
         inventory_replace(data: $data) { request_id }
       }`,
       { data }
