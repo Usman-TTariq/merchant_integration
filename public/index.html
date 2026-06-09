@@ -104,9 +104,20 @@
           <h2>Sync &amp; Stock Report</h2>
           <button id="btn-reports-refresh" class="btn secondary" type="button">Reload report</button>
         </div>
-        <p class="hint">Korona = source of truth for stock. Compare on-hand per SKU with ShipHero and see sync coverage.</p>
+        <p class="hint">Product name, sold qty (Korona POS + Studio), and <strong>remaining on-hand</strong> in Korona vs ShipHero (live).</p>
         <div id="reports-summary" class="reports-summary"></div>
-        <h2 class="section-gap">Stock by SKU</h2>
+        <h2 class="section-gap">Sales <span id="reports-sales-period" class="muted"></span></h2>
+        <div class="toolbar">
+          <select id="reports-days" class="input">
+            <option value="1">Today (PT)</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+          <input id="reports-sales-search" class="input" placeholder="Search sold SKU or name…" type="search" />
+        </div>
+        <div id="reports-sales-table" class="table-wrap"></div>
+        <div class="pager" id="reports-sales-pager"></div>
+        <h2 class="section-gap">Stock by SKU (remaining on-hand)</h2>
         <div class="toolbar">
           <input id="reports-search" class="input" placeholder="Search SKU…" type="search" />
           <select id="reports-filter" class="input">
@@ -139,6 +150,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=9" type="module"></script>
+  <script src="/app.js?v=10" type="module"></script>
 </body>
 </html>

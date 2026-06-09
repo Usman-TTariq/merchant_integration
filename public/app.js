@@ -10,7 +10,10 @@ const state = {
   koronaReceiptsPage: 1,
   logsPage: 1,
   reportsPage: 1,
+  reportsSalesPage: 1,
+  reportsDays: 1,
   reportsSearch: "",
+  reportsSalesSearch: "",
   reportsFilter: "all",
   productSearch: "",
   logLevel: "",
@@ -343,19 +346,46 @@ async function loadReports() {
     const summary = await api("/api/reports/summary");
     renderReportsSummary(summary);
 
+    const salesQ = new URLSearchParams({
+      page: String(state.reportsSalesPage),
+      limit: "50",
+      days: String(state.reportsDays),
+    });
+    if (state.reportsSalesSearch) salesQ.set("search", state.reportsSalesSearch);
+    const sales = await api(`/api/reports/sales?${salesQ}`);
+    document.getElementById("reports-sales-period").textContent = `— ${sales.periodLabel}`;
+    document.getElementById("reports-sales-table").innerHTML = table(
+      ["Product", "SKU", "Sold", "Source", "Korona left", "ShipHero left", "Status"],
+      sales.rows.map((r) => [
+        esc(r.productName),
+        `<strong>${esc(r.sku)}</strong>`,
+        esc(r.soldQty),
+        esc(r.sources.map((s) => (s === "korona_pos" ? "POS" : "Studio")).join(", ")),
+        qtyCell(r.koronaQty),
+        qtyCell(r.shipheroQty),
+        statusBadge(r.status, r.statusLabel),
+      ])
+    );
+    pager("reports-sales-pager", sales.page, sales.total, sales.limit, (p) => {
+      state.reportsSalesPage = p;
+      loadReports();
+    });
+
     const q = new URLSearchParams({
       page: String(state.reportsPage),
       limit: "25",
       filter: state.reportsFilter,
+      days: String(state.reportsDays),
     });
     if (state.reportsSearch) q.set("search", state.reportsSearch);
 
     const stock = await api(`/api/reports/stock?${q}`);
     document.getElementById("reports-stock-table").innerHTML = table(
-      ["SKU", "Korona #", "Korona qty", "ShipHero qty", "Diff", "Status"],
+      ["Product", "SKU", "Sold", "Korona on-hand", "ShipHero on-hand", "Diff", "Status"],
       stock.rows.map((r) => [
+        esc(r.productName),
         `<strong>${esc(r.sku)}</strong>`,
-        esc(r.koronaNumber),
+        r.soldQty > 0 ? esc(r.soldQty) : '<span class="muted">0</span>',
         qtyCell(r.koronaQty) + (r.koronaSource ? `<span class="muted"> ${esc(r.koronaSource)}</span>` : ""),
         qtyCell(r.shipheroQty),
         r.diff == null ? '<span class="muted">—</span>' : `<span class="${r.diff === 0 ? "" : "diff-warn"}">${r.diff > 0 ? "+" : ""}${esc(r.diff)}</span>`,
@@ -477,6 +507,20 @@ document.getElementById("reports-filter").addEventListener("change", (e) => {
   state.reportsFilter = e.target.value;
   state.reportsPage = 1;
   loadReports();
+});
+
+document.getElementById("reports-days").addEventListener("change", (e) => {
+  state.reportsDays = Number(e.target.value);
+  state.reportsPage = 1;
+  state.reportsSalesPage = 1;
+  loadReports();
+});
+
+document.getElementById("reports-sales-search").addEventListener("input", (e) => {
+  state.reportsSalesSearch = e.target.value;
+  state.reportsSalesPage = 1;
+  clearTimeout(window._reportsSalesSearchTimer);
+  window._reportsSalesSearchTimer = setTimeout(loadReports, 400);
 });
 
 document.getElementById("btn-clear-errors").addEventListener("click", async () => {

@@ -24,7 +24,7 @@ import {
   sessionCookieHeader,
   verifyPassword,
 } from "./auth.js";
-import { getReportSummary, getStockReport } from "./reporting-data.js";
+import { getReportSummary, getSalesReport, getStockReport } from "./reporting-data.js";
 import {
   getDashboardStatus,
   getKoronaOrdersLive,
@@ -270,6 +270,20 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
           limit: Number(q.limit ?? 25),
           search: q.search ?? "",
           filter: q.filter ?? "all",
+          days: Number(q.days ?? 1),
+        })
+      );
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/reports/sales") {
+      return sendJson(
+        res,
+        200,
+        await getSalesReport({
+          page: Number(q.page ?? 1),
+          limit: Number(q.limit ?? 50),
+          search: q.search ?? "",
+          days: Number(q.days ?? 1),
         })
       );
     }

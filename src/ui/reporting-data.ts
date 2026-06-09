@@ -5,12 +5,14 @@ import {
   countLogsByLevel,
   countOrderMappings,
   countTable,
+  findKoronaProductIdBySku,
   getAllCursors,
   getCursor,
   queryOrderMappings,
   queryProductMappings,
   querySyncLogs,
 } from "../db.js";
+import { aggregateKoronaSales } from "../utils/report-sales.js";
 import { resolveKoronaStockQuantity } from "../utils/korona-product-stock.js";
 import { getDashboardStatus } from "./status.js";
 
@@ -23,12 +25,25 @@ export type StockReportStatus =
 
 export interface StockReportRow {
   sku: string;
+  productName: string | null;
   koronaNumber: string | null;
   koronaProductId: string;
   koronaQty: number | null;
   koronaSource: string | null;
   shipheroQty: number | null;
+  soldQty: number;
   diff: number | null;
+  status: StockReportStatus;
+  statusLabel: string;
+}
+
+export interface SalesReportRow {
+  sku: string;
+  productName: string;
+  soldQty: number;
+  sources: string[];
+  koronaQty: number | null;
+  shipheroQty: number | null;
   status: StockReportStatus;
   statusLabel: string;
 }
@@ -110,7 +125,8 @@ async function countStockUntrackedLogs(): Promise<number> {
 async function buildStockRow(
   korona: KoronaClient,
   shiphero: ShipHeroClient,
-  mapping: Record<string, unknown>
+  mapping: Record<string, unknown>,
+  salesMap?: Map<string, { soldQty: number; productName: string }>
 ): Promise<StockReportRow> {
   const koronaProductId = String(mapping.korona_product_id ?? "");
   const sku = String(mapping.shiphero_sku ?? "");
@@ -135,23 +151,39 @@ async function buildStockRow(
   }
 
   let shipheroQty: number | null = null;
+  let productName: string | null = salesMap?.get(sku)?.productName ?? null;
   try {
     const product = await shiphero.getProductBySku(sku);
-    shipheroQty = product ? shiphero.getWarehouseOnHand(product) : null;
+    if (product) {
+      productName = product.name ?? productName;
+      shipheroQty = shiphero.getWarehouseOnHand(product);
+    }
   } catch {
     shipheroQty = null;
   }
 
+  if (!productName) {
+    try {
+      const kp = await korona.getProduct(koronaProductId);
+      productName = kp.name ?? null;
+    } catch {
+      productName = null;
+    }
+  }
+
+  const soldQty = salesMap?.get(sku)?.soldQty ?? 0;
   const diff = koronaQty != null && shipheroQty != null ? shipheroQty - koronaQty : null;
   const { status, statusLabel } = classifyStockRow(koronaQty, koronaStatus, shipheroQty);
 
   return {
     sku,
+    productName,
     koronaNumber,
     koronaProductId,
     koronaQty,
     koronaSource,
     shipheroQty,
+    soldQty,
     diff,
     status,
     statusLabel,
@@ -185,10 +217,14 @@ export async function getReportSummary(): Promise<ReportSummary> {
 
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
+  const salesRaw = await aggregateKoronaSales(korona, 1);
+  const salesMap = new Map(
+    [...salesRaw.entries()].map(([k, v]) => [k, { soldQty: v.soldQty, productName: v.productName }])
+  );
   const sampleBatch = await queryProductMappings({ page: 1, limit: SUMMARY_SAMPLE_SIZE });
   const sampleRows: StockReportRow[] = [];
   for (const row of sampleBatch.rows) {
-    sampleRows.push(await buildStockRow(korona, shiphero, row));
+    sampleRows.push(await buildStockRow(korona, shiphero, row, salesMap));
   }
 
   return {
@@ -213,11 +249,82 @@ export async function getReportSummary(): Promise<ReportSummary> {
   };
 }
 
+export async function getSalesReport(opts: {
+  days?: number;
+  page?: number;
+  limit?: number;
+  search?: string;
+}): Promise<{
+  rows: SalesReportRow[];
+  page: number;
+  limit: number;
+  total: number;
+  days: number;
+  periodLabel: string;
+}> {
+  const days = Math.min(30, Math.max(1, opts.days ?? 1));
+  const page = Math.max(1, opts.page ?? 1);
+  const limit = Math.min(100, Math.max(10, opts.limit ?? 50));
+  const search = opts.search?.trim().toLowerCase() ?? "";
+
+  const korona = new KoronaClient();
+  const shiphero = new ShipHeroClient();
+  const salesRaw = await aggregateKoronaSales(korona, days);
+
+  let entries = [...salesRaw.values()].sort((a, b) => b.soldQty - a.soldQty);
+  if (search) {
+    entries = entries.filter(
+      (e) => e.sku.toLowerCase().includes(search) || e.productName.toLowerCase().includes(search)
+    );
+  }
+
+  const total = entries.length;
+  const slice = entries.slice((page - 1) * limit, page * limit);
+  const rows: SalesReportRow[] = [];
+
+  for (const entry of slice) {
+    const mapping = await findKoronaProductIdBySku(entry.sku);
+    let koronaQty: number | null = null;
+    let shipheroQty: number | null = null;
+    let koronaStatus = "ok";
+
+    if (mapping) {
+      const resolved = await resolveKoronaStockQuantity(korona, mapping, { autoEnableTracking: false });
+      if (resolved.status === "ok") koronaQty = resolved.qty;
+      else koronaStatus = resolved.status;
+    }
+
+    try {
+      const product = await shiphero.getProductBySku(entry.sku);
+      shipheroQty = product ? shiphero.getWarehouseOnHand(product) : null;
+    } catch {
+      shipheroQty = null;
+    }
+
+    const { status, statusLabel } = classifyStockRow(koronaQty, koronaStatus, shipheroQty);
+    rows.push({
+      sku: entry.sku,
+      productName: entry.productName,
+      soldQty: entry.soldQty,
+      sources: [...entry.sources],
+      koronaQty,
+      shipheroQty,
+      status,
+      statusLabel,
+    });
+  }
+
+  const periodLabel = days === 1 ? "Today (PT)" : `Last ${days} days (PT)`;
+
+  return { rows, page, limit, total, days, periodLabel };
+}
+
 export async function getStockReport(opts: {
   page?: number;
   limit?: number;
   search?: string;
   filter?: string;
+  days?: number;
 }): Promise<{
   rows: StockReportRow[];
   page: number;
@@ -232,12 +339,17 @@ export async function getStockReport(opts: {
 
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
+  const salesDays = Math.min(30, Math.max(1, opts.days ?? 1));
+  const salesRaw = await aggregateKoronaSales(korona, salesDays);
+  const salesMap = new Map(
+    [...salesRaw.entries()].map(([k, v]) => [k, { soldQty: v.soldQty, productName: v.productName }])
+  );
 
   if (filter === "all" && !search) {
     const { rows: mappings, total } = await queryProductMappings({ page, limit, search });
     const rows: StockReportRow[] = [];
     for (const mapping of mappings) {
-      rows.push(await buildStockRow(korona, shiphero, mapping));
+      rows.push(await buildStockRow(korona, shiphero, mapping, salesMap));
     }
     return { rows, page, limit, total, scanned: mappings.length };
   }
@@ -257,7 +369,7 @@ export async function getStockReport(opts: {
 
     for (const mapping of batch.rows) {
       scanned++;
-      const row = await buildStockRow(korona, shiphero, mapping);
+      const row = await buildStockRow(korona, shiphero, mapping, salesMap);
       if (filter === "all" || row.status === filter) {
         matched.push(row);
       }
