@@ -17,6 +17,7 @@
     "start": "tsx src/scheduler.ts",
     "setup": "tsx src/scripts/setup.ts",
     "logs:clear": "tsx src/scripts/clear-error-logs.ts",
+    "logs:clear-warnings": "tsx src/scripts/clear-warning-logs.ts",
     "discover": "tsx src/scripts/discover-korona.ts",
     "sync:phase2": "tsx src/scripts/run-phase2.ts",
     "status": "tsx src/scripts/status-db.ts",

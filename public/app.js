@@ -533,5 +533,15 @@ document.getElementById("btn-clear-errors").addEventListener("click", async () =
   }
 });
 
+document.getElementById("btn-clear-warnings").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/logs/clear-warnings", { method: "POST" });
+    document.getElementById("sync-msg").textContent = `Cleared ${res.deleted} warning log(s)`;
+    await refreshAll();
+  } catch (err) {
+    document.getElementById("sync-msg").textContent = err.message;
+  }
+});
+
 refreshAll();
 setInterval(refreshAll, 15000);

@@ -11,27 +11,38 @@ const STOCK_PAGE_CURSOR = "stock_sync_page";
 
 export type StockSyncResult = "updated" | "skipped" | "untracked" | "missing";
 
+export type SyncProductStockOptions = {
+  /** When false, routine batch sync won't log per-SKU warnings (avoids log spam). */
+  logWarnings?: boolean;
+};
+
 export async function syncProductStock(
   korona: KoronaClient,
   shiphero: ShipHeroClient,
   koronaProductId: string,
   sku: string,
   reason: string,
-  job: "stock" | "products" | "orders" = "stock"
+  job: "stock" | "products" | "orders" = "stock",
+  options?: SyncProductStockOptions
 ): Promise<StockSyncResult> {
   if (!config.sync.koronaStock) return "skipped";
 
+  const logWarnings = options?.logWarnings ?? true;
   const resolved = await resolveKoronaStockQuantity(korona, koronaProductId);
   if (resolved.status === "untracked") {
-    await logSync(
-      job,
-      "warn",
-      `SKU ${sku}: Korona stock not tracked (enable trackInventory in Korona or set KORONA_INVENTORY_ID + KORONA_INVENTORY_LIST_ID), skipping`
-    );
+    if (logWarnings) {
+      await logSync(
+        job,
+        "warn",
+        `SKU ${sku}: Korona stock not tracked (enable trackInventory in Korona or set KORONA_INVENTORY_ID + KORONA_INVENTORY_LIST_ID), skipping`
+      );
+    }
     return "untracked";
   }
   if (resolved.status === "no_rows") {
-    await logSync(job, "warn", `SKU ${sku}: no Korona stock rows, skipping`);
+    if (logWarnings) {
+      await logSync(job, "warn", `SKU ${sku}: no Korona stock rows, skipping`);
+    }
     return "skipped";
   }
 
@@ -43,7 +54,9 @@ export async function syncProductStock(
   }
   const existing = await shiphero.getProductBySku(sku);
   if (!existing) {
-    await logSync(job, "warn", `SKU ${sku}: not in ShipHero, skipping stock sync`);
+    if (logWarnings) {
+      await logSync(job, "warn", `SKU ${sku}: not in ShipHero, skipping stock sync`);
+    }
     return "missing";
   }
 
@@ -109,6 +122,9 @@ export async function syncStock(): Promise<{ updated: number; skipped: number; p
 
   let updated = 0;
   let skipped = 0;
+  let untracked = 0;
+  let noRows = 0;
+  let missing = 0;
 
   for (const row of rows) {
     const koronaProductId = String(row.korona_product_id ?? "");
@@ -125,9 +141,13 @@ export async function syncStock(): Promise<{ updated: number; skipped: number; p
         koronaProductId,
         sku,
         "Korona stock sync",
-        "stock"
+        "stock",
+        { logWarnings: false }
       );
       if (result === "updated") updated++;
+      else if (result === "untracked") untracked++;
+      else if (result === "missing") missing++;
+      else if (result === "skipped") noRows++;
       else skipped++;
     } catch (err) {
       skipped++;
@@ -142,10 +162,18 @@ export async function syncStock(): Promise<{ updated: number; skipped: number; p
   const nextPage = rows.length === 0 || page >= pages ? 1 : page + 1;
   await setCursor(STOCK_PAGE_CURSOR, String(nextPage));
 
+  if (untracked || noRows || missing) {
+    await logSync(
+      "stock",
+      "warn",
+      `Batch issues: untracked=${untracked} no_rows=${noRows} missing_shiphero=${missing} page=${page}/${pages}`
+    );
+  }
+
   await logSync(
     "stock",
     "info",
-    `Done: updated=${updated} skipped=${skipped} page=${page}/${pages} next=${nextPage}`
+    `Done: updated=${updated} skipped=${skipped + noRows + untracked + missing} page=${page}/${pages} next=${nextPage}`
   );
   return { updated, skipped, page, pages };
 }

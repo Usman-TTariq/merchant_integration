@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
-import { deleteErrorLogs, initDatabase, logSync } from "../db.js";
+import { deleteErrorLogs, deleteWarningLogs, initDatabase, logSync } from "../db.js";
 import { runSyncJob, type SyncJob } from "../sync/run-job.js";
 import { isCronAuthorized } from "./cron-auth.js";
 import {
@@ -291,6 +291,12 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     if (req.method === "POST" && url.pathname === "/api/logs/clear-errors") {
       const deleted = await deleteErrorLogs();
       await logSync("dashboard", "info", `Cleared ${deleted} error log(s)`);
+      return sendJson(res, 200, { ok: true, deleted });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/logs/clear-warnings") {
+      const deleted = await deleteWarningLogs();
+      await logSync("dashboard", "info", `Cleared ${deleted} warning log(s)`);
       return sendJson(res, 200, { ok: true, deleted });
     }
 

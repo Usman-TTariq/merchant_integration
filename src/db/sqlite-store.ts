@@ -314,6 +314,10 @@ export async function deleteErrorLogs(): Promise<number> {
   return sqlite().prepare("DELETE FROM sync_log WHERE level = 'error'").run().changes;
 }
 
+export async function deleteWarningLogs(): Promise<number> {
+  return sqlite().prepare("DELETE FROM sync_log WHERE level = 'warn'").run().changes;
+}
+
 export async function groupLogCounts(): Promise<Array<{ level: string; c: number }>> {
   return sqlite()
     .prepare("SELECT level, COUNT(*) AS c FROM sync_log GROUP BY level")

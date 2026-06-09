@@ -285,6 +285,12 @@ export async function deleteErrorLogs(): Promise<number> {
   return data?.length ?? 0;
 }
 
+export async function deleteWarningLogs(): Promise<number> {
+  const { data, error } = await getSupabase().from("sync_log").delete().eq("level", "warn").select("id");
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
+}
+
 export async function groupLogCounts(): Promise<Array<{ level: string; c: number }>> {
   const { data, error } = await getSupabase().from("sync_log").select("level");
   if (error) throw new Error(error.message);

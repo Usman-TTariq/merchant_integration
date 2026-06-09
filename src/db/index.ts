@@ -41,6 +41,7 @@ export const maxProductRevision = store.maxProductRevision;
 export const countProductsUpdatedSinceMinutes = store.countProductsUpdatedSinceMinutes;
 export const latestProductMapping = store.latestProductMapping;
 export const deleteErrorLogs = store.deleteErrorLogs;
+export const deleteWarningLogs = store.deleteWarningLogs;
 export const groupLogCounts = store.groupLogCounts;
 export const recentSyncLogs = store.recentSyncLogs;
 
