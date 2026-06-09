@@ -6,6 +6,7 @@ export interface KoronaReference {
 
 export interface KoronaAmount {
   value?: number;
+  actual?: number;
   currency?: KoronaReference;
 }
 
@@ -88,9 +89,10 @@ export interface KoronaCustomerOrder {
 
 export interface KoronaProductStock {
   revision?: number;
-  amount?: KoronaAmount;
+  amount?: KoronaAmount | number;
   product?: KoronaReference;
   warehouse?: KoronaReference;
+  listed?: boolean;
 }
 
 export interface KoronaInventoryListItem {

@@ -61,6 +61,8 @@ export const config = {
     password: required("KORONA_PASSWORD"),
     inventoryId: optional("KORONA_INVENTORY_ID"),
     inventoryListId: optional("KORONA_INVENTORY_LIST_ID"),
+    /** Optional Korona warehouse UUID for stock reads (defaults: sum all warehouses). */
+    warehouseId: optional("KORONA_WAREHOUSE_ID"),
   },
   shiphero: {
     authUrl: optional("SHIPHERO_AUTH_URL") ?? "https://public-api.shiphero.com/auth/token",
@@ -85,6 +87,9 @@ export const config = {
     pageSize: Number(optional("SYNC_PAGE_SIZE") ?? "100"),
     skuField: (optional("SKU_FIELD") ?? "number") as "number" | "code" | "id",
     shipheroOrdersUpdatedFrom: optional("SHIPHERO_ORDERS_UPDATED_FROM"),
+    /** Push Korona stock levels to ShipHero on_hand (default on). */
+    koronaStock: optional("SYNC_KORONA_STOCK") !== "false",
+    stockBatchSize: Number(optional("STOCK_SYNC_BATCH_SIZE") ?? "150"),
   },
   cron: {
     products: optional("CRON_PRODUCTS") ?? "0 */4 * * *",

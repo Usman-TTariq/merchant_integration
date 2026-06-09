@@ -57,11 +57,21 @@ State is stored in SQLite (`data/sync.db`): product mappings, order mappings, re
 
    Open http://localhost:3847 — shows Korona live products, sync mappings, logs, and manual sync buttons.
 
-6. **Scheduler** (cron, UTC):
+6. **Scheduler** (cron, UTC) — for always-on servers:
 
    ```bash
    npm start
    ```
+
+7. **Vercel auto-sync** (no manual button needed):
+
+   - Set `CRON_SECRET` in Vercel → Environment Variables (long random string).
+   - Deploy — `vercel.json` runs:
+     - **Orders** every **3 minutes** → `GET /api/cron/orders`
+     - **Products** every **6 hours** → `GET /api/cron/products`
+     - **Stock levels** every **15 minutes** (150 SKUs/batch) → `GET /api/cron/stock`
+   - Vercel sends `Authorization: Bearer <CRON_SECRET>` on cron requests.
+   - Check **Logs** tab for `cron` job entries after deploy.
 
 ## SKU mapping
 

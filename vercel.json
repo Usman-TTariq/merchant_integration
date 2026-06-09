@@ -3,6 +3,20 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "crons": [
+    {
+      "path": "/api/cron/orders",
+      "schedule": "*/3 * * * *"
+    },
+    {
+      "path": "/api/cron/products",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/stock",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "functions": {
     "api/index.ts": {
       "maxDuration": 300,

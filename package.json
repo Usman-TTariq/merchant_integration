@@ -11,6 +11,7 @@
     "receipts:inspect": "tsx src/scripts/inspect-receipts.ts",
     "receipts:backfill-inventory": "tsx src/scripts/backfill-receipt-order-inventory.ts",
     "sync:orders": "tsx src/cli.ts orders",
+    "sync:stock": "tsx src/cli.ts stock",
     "sync:all": "tsx src/cli.ts all",
     "start": "tsx src/scheduler.ts",
     "setup": "tsx src/scripts/setup.ts",

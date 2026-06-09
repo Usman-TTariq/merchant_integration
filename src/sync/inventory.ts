@@ -31,6 +31,15 @@ function resolveProductId(line: KoronaSaleLine): string | null {
 }
 
 export async function syncInventoryFromKorona(): Promise<{ receipts: number; adjustments: number }> {
+  if (config.sync.koronaStock) {
+    await logSync(
+      "inventory",
+      "info",
+      "Korona→ShipHero receipt deltas skipped (SYNC_KORONA_STOCK uses Korona on-hand levels)"
+    );
+    return { receipts: 0, adjustments: 0 };
+  }
+
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
 

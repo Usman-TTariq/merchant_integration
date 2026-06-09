@@ -110,6 +110,20 @@ export class KoronaClient {
     return this.request(this.accountPath(`/products/${productId}/stocks${query}`));
   }
 
+  /** Returns null when Korona does not track stock for this product. */
+  async getProductStocksSafe(productId: string): Promise<KoronaProductStock[] | null> {
+    try {
+      const list = await this.getProductStocks(productId);
+      return list.results ?? [];
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not tracked") || msg.includes("CONDITION_MISMATCH")) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
   updateInventoryListItems(
     inventoryId: string,
     inventoryListId: string,

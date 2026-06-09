@@ -10,7 +10,7 @@ import {
   markReceiptProcessed,
   setCursor,
 } from "../db.js";
-import { removeInventoryForReceiptLines } from "./receipt-inventory.js";
+import { syncStockForReceipt } from "./stock.js";
 import { receiptHasSaleLines, receiptSaleLines } from "../utils/korona-receipt.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type {
@@ -163,9 +163,9 @@ async function buildReceiptLineItems(
 }
 
 async function deductReceiptInventoryIfNeeded(
+  korona: KoronaClient,
   shiphero: ShipHeroClient,
   receipt: KoronaReceipt,
-  lineItems: ShipHeroLineItem[],
   force = false
 ): Promise<void> {
   const receiptNumber = receipt.number ?? receipt.id;
@@ -173,14 +173,14 @@ async function deductReceiptInventoryIfNeeded(
     await logSync(
       "orders",
       "info",
-      `Receipt ${receiptNumber}: inventory already processed, skipped inventory_remove`
+      `Receipt ${receiptNumber}: inventory already processed, skipped stock sync`
     );
     return;
   }
 
-  const adjustments = await removeInventoryForReceiptLines(shiphero, lineItems, String(receiptNumber));
+  const adjustments = await syncStockForReceipt(korona, shiphero, receipt);
   await markReceiptProcessed(receipt.id);
-  await logSync("orders", "info", `Receipt ${receiptNumber}: inventory adjustments=${adjustments}`);
+  await logSync("orders", "info", `Receipt ${receiptNumber}: stock sync updates=${adjustments}`);
 }
 
 async function syncCustomerOrders(): Promise<{ created: number; skipped: number }> {
@@ -307,7 +307,7 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
         if (isReceiptEligible(full) && !(await isReceiptProcessed(full.id))) {
           const existingLines = await buildReceiptLineItems(shiphero, full);
           if (existingLines.length) {
-            await deductReceiptInventoryIfNeeded(shiphero, full, existingLines);
+            await deductReceiptInventoryIfNeeded(korona, shiphero, full);
           }
         }
         skipped++;
@@ -359,7 +359,7 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
           shipheroOrderId: createdOrder.id,
           shipheroOrderNumber: createdOrder.order_number,
         });
-        await deductReceiptInventoryIfNeeded(shiphero, full, lineItems);
+        await deductReceiptInventoryIfNeeded(korona, shiphero, full);
         bumpRevision();
         created++;
         await logSync(

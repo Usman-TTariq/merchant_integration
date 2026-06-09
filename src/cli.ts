@@ -1,7 +1,4 @@
-import { initDatabase } from "./db.js";
-import { syncInventory } from "./sync/inventory.js";
-import { syncOrders } from "./sync/orders.js";
-import { syncProducts } from "./sync/products.js";
+import { runSyncJob, type SyncJob } from "./sync/run-job.js";
 import 'dotenv/config';
 
 (async () => {
@@ -17,30 +14,16 @@ import 'dotenv/config';
     }
 })();
 
-const job = process.argv[2] ?? "all";
+const job = (process.argv[2] ?? "all") as SyncJob;
 
 async function main(): Promise<void> {
-  await initDatabase();
-  switch (job) {
-    case "products":
-      await syncProducts();
-      break;
-    case "inventory":
-      await syncInventory();
-      break;
-    case "orders":
-      await syncOrders();
-      break;
-    case "all":
-      await syncProducts();
-      await syncInventory();
-      await syncOrders();
-      break;
-    default:
-      console.error(`Unknown job: ${job}`);
-      console.error("Usage: npm run sync:<products|inventory|orders|all>");
-      process.exit(1);
+  if (!["products", "inventory", "orders", "stock", "all"].includes(job)) {
+    console.error(`Unknown job: ${job}`);
+    console.error("Usage: npm run sync:<products|inventory|orders|stock|all>");
+    process.exit(1);
   }
+  const results = await runSyncJob(job);
+  console.log(results);
 }
 
 main().catch((err) => {

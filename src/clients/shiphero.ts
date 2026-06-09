@@ -193,6 +193,31 @@ export class ShipHeroClient {
     );
   }
 
+  getWarehouseOnHand(product: ShipHeroProduct, warehouseId?: string): number {
+    const wid = warehouseId ?? requireShipheroWarehouseId();
+    const row = product.warehouse_products?.find((w) => w.warehouse_id === wid);
+    return row?.on_hand ?? 0;
+  }
+
+  async inventoryReplace(sku: string, quantity: number, reason: string): Promise<void> {
+    const data: Record<string, unknown> = {
+      sku,
+      warehouse_id: requireShipheroWarehouseId(),
+      quantity: Math.round(quantity),
+      reason,
+    };
+    if (config.shiphero.locationId) {
+      data.location_id = config.shiphero.locationId;
+    }
+
+    await this.graphql(
+      `mutation InventoryReplace($data: UpdateInventoryInput!) {
+        inventory_replace(data: $data) { request_id }
+      }`,
+      { data }
+    );
+  }
+
   async inventoryAdd(sku: string, quantity: number, reason: string): Promise<void> {
     const data: Record<string, unknown> = {
       sku,

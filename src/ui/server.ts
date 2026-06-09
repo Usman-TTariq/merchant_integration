@@ -5,9 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { deleteErrorLogs, initDatabase, logSync } from "../db.js";
-import { syncInventory } from "../sync/inventory.js";
-import { syncOrders } from "../sync/orders.js";
-import { syncProducts } from "../sync/products.js";
+import { runSyncJob, type SyncJob } from "../sync/run-job.js";
+import { isCronAuthorized } from "./cron-auth.js";
 import {
   getCursors,
   getLogs,
@@ -157,6 +156,36 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       return sendJson(res, 200, { ok: true, authenticated: false });
     }
 
+    if (url.pathname.startsWith("/api/cron/")) {
+      if (req.method !== "GET" && req.method !== "POST") {
+        return sendJson(res, 405, { error: "Method not allowed" });
+      }
+      if (!isCronAuthorized(req)) {
+        return sendJson(res, 401, { error: "Unauthorized cron request" });
+      }
+
+      const job = url.pathname.replace("/api/cron/", "") as SyncJob;
+      if (!["products", "inventory", "orders", "stock"].includes(job)) {
+        return sendJson(res, 404, { error: "Unknown cron job" });
+      }
+      if (syncRunning) {
+        return sendJson(res, 409, { error: "Sync already running" });
+      }
+
+      syncRunning = true;
+      try {
+        await logSync("cron", "info", `Cron sync started: ${job}`);
+        const results = await runSyncJob(job);
+        await logSync("cron", "info", `Cron sync finished: ${job} ${JSON.stringify(results)}`);
+        return sendJson(res, 200, { ok: true, job, results });
+      } catch (err) {
+        await logSync("cron", "error", `Cron sync failed (${job}): ${err instanceof Error ? err.message : String(err)}`);
+        return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      } finally {
+        syncRunning = false;
+      }
+    }
+
     if (req.method === "GET" && url.pathname === "/api/auth/session") {
       return sendJson(res, 200, {
         authenticated: isAuthenticated(req),
@@ -243,7 +272,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
     if (req.method === "POST" && url.pathname.startsWith("/api/sync/")) {
       const job = url.pathname.replace("/api/sync/", "");
-      if (!["products", "inventory", "orders", "all"].includes(job)) {
+      if (!["products", "inventory", "orders", "stock", "all"].includes(job)) {
         return sendJson(res, 400, { error: "Unknown sync job" });
       }
       if (syncRunning) {
@@ -255,12 +284,9 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
       void (async () => {
         try {
-          await initDatabase();
           await logSync("dashboard", "info", `Manual sync started: ${job}`);
-          if (job === "products" || job === "all") await syncProducts();
-          if (job === "inventory" || job === "all") await syncInventory();
-          if (job === "orders" || job === "all") await syncOrders();
-          await logSync("dashboard", "info", `Manual sync finished: ${job}`);
+          const results = await runSyncJob(job as SyncJob);
+          await logSync("dashboard", "info", `Manual sync finished: ${job} ${JSON.stringify(results)}`);
         } catch (err) {
           await logSync(
             "dashboard",
