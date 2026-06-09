@@ -9,6 +9,9 @@ const state = {
   receiptsPage: 1,
   koronaReceiptsPage: 1,
   logsPage: 1,
+  reportsPage: 1,
+  reportsSearch: "",
+  reportsFilter: "all",
   productSearch: "",
   logLevel: "",
   displayTimezone: DEFAULT_TIMEZONE,
@@ -276,6 +279,98 @@ async function loadReceipts() {
   });
 }
 
+function statusBadge(status, label) {
+  return `<span class="report-status report-status-${esc(status)}">${esc(label)}</span>`;
+}
+
+function qtyCell(value) {
+  if (value == null) return '<span class="muted">—</span>';
+  return esc(value);
+}
+
+function renderReportsSummary(summary) {
+  const s = summary.sync;
+  const scan = summary.stockScan;
+
+  document.getElementById("reports-summary").innerHTML = `
+    <div class="reports-grid">
+      <div class="card">
+        <h3>Connections</h3>
+        <dl class="kv">
+          <div><dt>Korona</dt><dd>${summary.connections.korona ? '<span class="report-status report-status-synced">OK</span>' : '<span class="report-status report-status-mismatch">Fail</span>'}</dd></div>
+          <div><dt>ShipHero</dt><dd>${summary.connections.shiphero ? '<span class="report-status report-status-synced">OK</span>' : '<span class="report-status report-status-mismatch">Fail</span>'}</dd></div>
+        </dl>
+      </div>
+      <div class="card">
+        <h3>Sync coverage</h3>
+        <dl class="kv">
+          <div><dt>Product mappings</dt><dd>${esc(s.productMappings)}</dd></div>
+          <div><dt>Order mappings</dt><dd>${esc(s.orderMappings)}</dd></div>
+          <div><dt>Korona POS receipts</dt><dd>${esc(s.orderReceipts)}</dd></div>
+          <div><dt>Korona Studio orders</dt><dd>${esc(s.orderStudio)}</dd></div>
+          <div><dt>Processed receipts</dt><dd>${esc(s.processedReceipts)}</dd></div>
+          <div><dt>Korona → SH stock</dt><dd>${s.syncKoronaStock ? "On" : "Off"}</dd></div>
+        </dl>
+      </div>
+      <div class="card">
+        <h3>Stock sample (first ${esc(scan.sampled)} SKUs)</h3>
+        <dl class="kv">
+          <div><dt>In sync</dt><dd>${esc(scan.synced)}</dd></div>
+          <div><dt>Mismatch</dt><dd>${esc(scan.mismatch)}</dd></div>
+          <div><dt>Not tracked</dt><dd>${esc(scan.untracked)}</dd></div>
+          <div><dt>No Korona rows</dt><dd>${esc(scan.noRows)}</dd></div>
+          <div><dt>Missing ShipHero</dt><dd>${esc(scan.missingShiphero)}</dd></div>
+        </dl>
+      </div>
+      <div class="card">
+        <h3>Logs</h3>
+        <dl class="kv">
+          <div><dt>Errors</dt><dd>${esc(summary.logs.errors)}</dd></div>
+          <div><dt>Warnings</dt><dd>${esc(summary.logs.warnings)}</dd></div>
+          <div><dt>Stock “not tracked”</dt><dd>${esc(summary.logs.stockUntrackedHints)} <span class="muted">(recent warns)</span></dd></div>
+          <div><dt>Stock cron page</dt><dd>${esc(s.stockBatchCursor ?? "1")}</dd></div>
+        </dl>
+      </div>
+    </div>
+  `;
+}
+
+async function loadReports() {
+  const loading = document.getElementById("reports-loading");
+  loading.hidden = false;
+
+  try {
+    const summary = await api("/api/reports/summary");
+    renderReportsSummary(summary);
+
+    const q = new URLSearchParams({
+      page: String(state.reportsPage),
+      limit: "25",
+      filter: state.reportsFilter,
+    });
+    if (state.reportsSearch) q.set("search", state.reportsSearch);
+
+    const stock = await api(`/api/reports/stock?${q}`);
+    document.getElementById("reports-stock-table").innerHTML = table(
+      ["SKU", "Korona #", "Korona qty", "ShipHero qty", "Diff", "Status"],
+      stock.rows.map((r) => [
+        `<strong>${esc(r.sku)}</strong>`,
+        esc(r.koronaNumber),
+        qtyCell(r.koronaQty) + (r.koronaSource ? `<span class="muted"> ${esc(r.koronaSource)}</span>` : ""),
+        qtyCell(r.shipheroQty),
+        r.diff == null ? '<span class="muted">—</span>' : `<span class="${r.diff === 0 ? "" : "diff-warn"}">${r.diff > 0 ? "+" : ""}${esc(r.diff)}</span>`,
+        statusBadge(r.status, r.statusLabel),
+      ])
+    );
+    pager("reports-pager", stock.page, stock.total, stock.limit, (p) => {
+      state.reportsPage = p;
+      loadReports();
+    });
+  } finally {
+    loading.hidden = true;
+  }
+}
+
 async function loadLogs() {
   const level = state.logLevel ? `&level=${state.logLevel}` : "";
   const data = await api(`/api/logs?page=${state.logsPage}&limit=100${level}`);
@@ -301,6 +396,7 @@ async function loadActiveTab() {
     if (state.tab === "mappings") await loadMappings();
     if (state.tab === "orders") await loadOrders();
     if (state.tab === "receipts") await loadReceipts();
+    if (state.tab === "reports") await loadReports();
     if (state.tab === "logs") await loadLogs();
   } catch (err) {
     console.error(err);
@@ -363,6 +459,24 @@ document.getElementById("log-level").addEventListener("change", (e) => {
   state.logLevel = e.target.value;
   state.logsPage = 1;
   loadLogs();
+});
+
+document.getElementById("btn-reports-refresh").addEventListener("click", () => {
+  state.reportsPage = 1;
+  loadReports();
+});
+
+document.getElementById("reports-search").addEventListener("input", (e) => {
+  state.reportsSearch = e.target.value;
+  state.reportsPage = 1;
+  clearTimeout(window._reportsSearchTimer);
+  window._reportsSearchTimer = setTimeout(loadReports, 400);
+});
+
+document.getElementById("reports-filter").addEventListener("change", (e) => {
+  state.reportsFilter = e.target.value;
+  state.reportsPage = 1;
+  loadReports();
 });
 
 document.getElementById("btn-clear-errors").addEventListener("click", async () => {

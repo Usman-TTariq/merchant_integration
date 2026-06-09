@@ -1,9 +1,20 @@
 import "dotenv/config";
 
+const REQUIRED_ENV = [
+  "KORONA_ACCOUNT_ID",
+  "KORONA_USERNAME",
+  "KORONA_PASSWORD",
+] as const;
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value?.trim()) {
-    throw new Error(`Missing required environment variable: ${name}`);
+    const missing = REQUIRED_ENV.filter((key) => !process.env[key]?.trim());
+    const hint =
+      missing.length > 1
+        ? `Missing in .env: ${missing.join(", ")}. Copy .env.example → .env or run: npx vercel env pull .env`
+        : `Missing in .env: ${name}. Copy .env.example → .env or pull from Vercel: npx vercel env pull .env`;
+    throw new Error(hint);
   }
   return value.trim();
 }
@@ -63,6 +74,8 @@ export const config = {
     inventoryListId: optional("KORONA_INVENTORY_LIST_ID"),
     /** Optional Korona warehouse UUID for stock reads (defaults: sum all warehouses). */
     warehouseId: optional("KORONA_WAREHOUSE_ID"),
+    /** PATCH trackInventory=true when /products/{id}/stocks returns not tracked (default on). */
+    autoEnableStockTracking: optional("KORONA_AUTO_ENABLE_STOCK_TRACKING") !== "false",
   },
   shiphero: {
     authUrl: optional("SHIPHERO_AUTH_URL") ?? "https://public-api.shiphero.com/auth/token",

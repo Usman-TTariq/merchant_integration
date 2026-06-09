@@ -16,6 +16,7 @@ export interface KoronaProduct {
   number?: string;
   name?: string;
   deleted?: boolean;
+  trackInventory?: boolean;
   codes?: Array<{ code?: string; primary?: boolean }>;
   prices?: Array<{ value?: number; priceGroup?: KoronaReference }>;
 }
@@ -98,6 +99,7 @@ export interface KoronaProductStock {
 export interface KoronaInventoryListItem {
   product: KoronaReference;
   quantity?: KoronaAmount | number;
+  stock?: { actual?: number; nominal?: number };
 }
 
 export interface KoronaResultList<T> {

@@ -2,7 +2,7 @@ import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
 import { config } from "../config.js";
 import { findShipheroSku, getCursor, logSync, queryProductMappings, setCursor } from "../db.js";
-import { koronaStockQuantity } from "../utils/korona-stock.js";
+import { resolveKoronaStockQuantity } from "../utils/korona-product-stock.js";
 import { sanitizeSku } from "../utils/sku.js";
 import type { KoronaReceipt, KoronaSaleLine } from "../types/korona.js";
 import { receiptSaleLines } from "../utils/korona-receipt.js";
@@ -21,19 +21,26 @@ export async function syncProductStock(
 ): Promise<StockSyncResult> {
   if (!config.sync.koronaStock) return "skipped";
 
-  const stocks = await korona.getProductStocksSafe(koronaProductId);
-  if (stocks === null) {
-    await logSync(job, "warn", `SKU ${sku}: Korona stock not tracked, skipping`);
+  const resolved = await resolveKoronaStockQuantity(korona, koronaProductId);
+  if (resolved.status === "untracked") {
+    await logSync(
+      job,
+      "warn",
+      `SKU ${sku}: Korona stock not tracked (enable trackInventory in Korona or set KORONA_INVENTORY_ID + KORONA_INVENTORY_LIST_ID), skipping`
+    );
     return "untracked";
   }
-
-  const koronaQty = koronaStockQuantity(stocks, config.korona.warehouseId);
-  if (koronaQty === null) {
+  if (resolved.status === "no_rows") {
     await logSync(job, "warn", `SKU ${sku}: no Korona stock rows, skipping`);
     return "skipped";
   }
 
-  const target = Math.max(0, koronaQty);
+  const target = resolved.qty;
+  if (resolved.enabledTracking) {
+    await logSync(job, "info", `SKU ${sku}: enabled Korona trackInventory, on_hand=${target}`);
+  } else if (resolved.source === "inventory_list") {
+    await logSync(job, "info", `SKU ${sku}: using Korona inventory list quantity ${target}`);
+  }
   const existing = await shiphero.getProductBySku(sku);
   if (!existing) {
     await logSync(job, "warn", `SKU ${sku}: not in ShipHero, skipping stock sync`);

@@ -77,6 +77,13 @@ export class KoronaClient {
     return this.request(this.accountPath(`/products/${productId}`));
   }
 
+  updateProduct(productId: string, patch: Partial<KoronaProduct>): Promise<void> {
+    return this.request(this.accountPath(`/products/${productId}`), {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
   getReceipts(opts?: { revision?: number; page?: number }): Promise<KoronaResultList<KoronaReceipt>> {
     const query = this.buildQuery({
       page: opts?.page ?? 1,
@@ -122,6 +129,27 @@ export class KoronaClient {
       }
       throw err;
     }
+  }
+
+  /** Returns null when the product is not on the inventory list (404). */
+  async getInventoryListItem(
+    inventoryId: string,
+    inventoryListId: string,
+    productId: string
+  ): Promise<KoronaInventoryListItem | null> {
+    const url = this.accountPath(
+      `/inventories/${inventoryId}/inventoryLists/${inventoryListId}/items/${productId}`
+    );
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", Authorization: this.authHeader },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Korona API ${res.status} ${res.statusText}: ${body.slice(0, 500)}`);
+    }
+    if (res.status === 204) return null;
+    return (await res.json()) as KoronaInventoryListItem;
   }
 
   updateInventoryListItems(

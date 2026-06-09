@@ -29,6 +29,7 @@
       <button class="btn" data-sync="products" type="button">Sync Products</button>
       <button class="btn" data-sync="inventory" type="button">Sync Inventory</button>
       <button class="btn" data-sync="orders" type="button">Sync Orders</button>
+      <button class="btn" data-sync="stock" type="button">Sync Stock</button>
       <button class="btn primary" data-sync="all" type="button">Sync All</button>
       <span id="sync-msg" class="sync-msg"></span>
     </section>
@@ -42,6 +43,7 @@
       <button class="tab" data-tab="mappings" type="button">Product Mappings</button>
       <button class="tab" data-tab="orders" type="button">Orders</button>
       <button class="tab" data-tab="receipts" type="button">Receipts</button>
+      <button class="tab" data-tab="reports" type="button">Reports</button>
       <button class="tab" data-tab="logs" type="button">Logs</button>
     </nav>
 
@@ -97,6 +99,30 @@
         <div class="pager" id="korona-receipts-pager"></div>
       </section>
 
+      <section id="tab-reports" class="tab-panel">
+        <div class="toolbar">
+          <h2>Sync &amp; Stock Report</h2>
+          <button id="btn-reports-refresh" class="btn secondary" type="button">Reload report</button>
+        </div>
+        <p class="hint">Korona = source of truth for stock. Compare on-hand per SKU with ShipHero and see sync coverage.</p>
+        <div id="reports-summary" class="reports-summary"></div>
+        <h2 class="section-gap">Stock by SKU</h2>
+        <div class="toolbar">
+          <input id="reports-search" class="input" placeholder="Search SKU…" type="search" />
+          <select id="reports-filter" class="input">
+            <option value="all">All statuses</option>
+            <option value="synced">In sync</option>
+            <option value="mismatch">Mismatch</option>
+            <option value="untracked">Korona not tracked</option>
+            <option value="no_rows">No Korona rows</option>
+            <option value="missing_sh">Missing in ShipHero</option>
+          </select>
+        </div>
+        <p id="reports-loading" class="hint" hidden>Loading live stock from Korona &amp; ShipHero…</p>
+        <div id="reports-stock-table" class="table-wrap"></div>
+        <div class="pager" id="reports-pager"></div>
+      </section>
+
       <section id="tab-logs" class="tab-panel">
         <div class="toolbar">
           <h2>Sync Logs</h2>
@@ -113,6 +139,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=8" type="module"></script>
+  <script src="/app.js?v=9" type="module"></script>
 </body>
 </html>

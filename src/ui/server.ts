@@ -24,6 +24,7 @@ import {
   sessionCookieHeader,
   verifyPassword,
 } from "./auth.js";
+import { getReportSummary, getStockReport } from "./reporting-data.js";
 import {
   getDashboardStatus,
   getKoronaOrdersLive,
@@ -253,6 +254,23 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         res,
         200,
         await getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "")
+      );
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/reports/summary") {
+      return sendJson(res, 200, await getReportSummary());
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/reports/stock") {
+      return sendJson(
+        res,
+        200,
+        await getStockReport({
+          page: Number(q.page ?? 1),
+          limit: Number(q.limit ?? 25),
+          search: q.search ?? "",
+          filter: q.filter ?? "all",
+        })
       );
     }
 
