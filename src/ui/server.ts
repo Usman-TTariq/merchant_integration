@@ -25,6 +25,7 @@ import {
   sessionCookieHeader,
   verifyPassword,
 } from "./auth.js";
+import { exportAllLogsCsv, exportAllReceiptsCsv } from "./export-data.js";
 import { buildReceiptDownload } from "./receipt-download.js";
 import { getReportSummary, getSalesReport, getStockReport } from "./reporting-data.js";
 import {
@@ -63,6 +64,14 @@ function sendHtmlFile(res: http.ServerResponse, status: number, html: string, fi
     "Content-Disposition": `attachment; filename="${filename}"`,
   });
   res.end(html);
+}
+
+function sendCsvFile(res: http.ServerResponse, status: number, csv: string, filename: string): void {
+  res.writeHead(status, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
+  res.end("\uFEFF" + csv);
 }
 
 function isSecureRequest(req: http.IncomingMessage): boolean {
@@ -264,6 +273,17 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const receiptId = decodeURIComponent(receiptDownload[1]!);
       const doc = await buildReceiptDownload(receiptId);
       return sendHtmlFile(res, 200, doc.html, doc.filename);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/export/receipts.csv") {
+      const result = await exportAllReceiptsCsv();
+      return sendCsvFile(res, 200, result.csv, "winchateau-receipts.csv");
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/export/logs.csv") {
+      const result = await exportAllLogsCsv(q.level ?? "");
+      const suffix = q.level ? `-${q.level}` : "";
+      return sendCsvFile(res, 200, result.csv, `sync-logs${suffix}.csv`);
     }
 
     if (req.method === "GET" && url.pathname === "/api/logs") {

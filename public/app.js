@@ -541,6 +541,9 @@ document.getElementById("product-search").addEventListener("input", (e) => {
 document.getElementById("log-level").addEventListener("change", (e) => {
   state.logLevel = e.target.value;
   state.logsPage = 1;
+  const exportLogs = document.getElementById("btn-export-logs");
+  const level = e.target.value;
+  exportLogs.href = level ? `/api/export/logs.csv?level=${encodeURIComponent(level)}` : "/api/export/logs.csv";
   loadLogs();
 });
 

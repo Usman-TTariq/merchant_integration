@@ -90,7 +90,11 @@
       </section>
 
       <section id="tab-receipts" class="tab-panel">
-        <h2>Processed Receipts (synced to ShipHero)</h2>
+        <div class="toolbar">
+          <h2>Processed Receipts (synced to ShipHero)</h2>
+          <a class="btn secondary" href="/api/export/receipts.csv" download>Export all receipts (CSV)</a>
+        </div>
+        <p class="hint">CSV export includes every Korona POS receipt line (product name, SKU, qty, price). Large exports may take a minute.</p>
         <p id="receipts-hint" class="hint"></p>
         <div id="receipts-table" class="table-wrap"></div>
         <div class="pager" id="receipts-pager"></div>
@@ -137,6 +141,7 @@
       <section id="tab-logs" class="tab-panel">
         <div class="toolbar">
           <h2>Sync Logs</h2>
+          <a id="btn-export-logs" class="btn secondary" href="/api/export/logs.csv" download>Export logs (CSV)</a>
           <button id="btn-clear-errors" class="btn secondary" type="button">Clear errors</button>
           <button id="btn-clear-warnings" class="btn secondary" type="button">Clear warnings</button>
           <select id="log-level" class="input">
@@ -152,6 +157,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=12" type="module"></script>
+  <script src="/app.js?v=13" type="module"></script>
 </body>
 </html>
