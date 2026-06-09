@@ -1,6 +1,7 @@
 import {
   countLogsByLevel,
   countTable,
+  summarizeSyncLogs,
   getAllCursors,
   queryOrderMappings,
   queryProcessedReceipts,
@@ -142,4 +143,8 @@ export async function getLogs(page = 1, limit = 100, level = "") {
     page,
     limit,
   };
+}
+
+export function getLogsSummary() {
+  return summarizeSyncLogs();
 }

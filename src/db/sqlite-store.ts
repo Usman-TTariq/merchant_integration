@@ -318,6 +318,50 @@ export async function deleteWarningLogs(): Promise<number> {
   return sqlite().prepare("DELETE FROM sync_log WHERE level = 'warn'").run().changes;
 }
 
+export interface LogSummary {
+  byJobLevel: Array<{ job: string; level: string; c: number }>;
+  warnCategories: Array<{ category: string; c: number }>;
+  errorSamples: Array<{ message: string; c: number }>;
+}
+
+export async function summarizeSyncLogs(): Promise<LogSummary> {
+  const db = sqlite();
+  const byJobLevel = db
+    .prepare(
+      `SELECT job, level, COUNT(*) AS c FROM sync_log GROUP BY job, level ORDER BY c DESC`
+    )
+    .all() as Array<{ job: string; level: string; c: number }>;
+
+  const warnCategories = db
+    .prepare(
+      `SELECT
+        CASE
+          WHEN message LIKE '%not tracked%' THEN 'Korona stock not tracked'
+          WHEN message LIKE '%no Korona stock rows%' THEN 'No Korona stock rows'
+          WHEN message LIKE '%not in ShipHero%' THEN 'SKU not in ShipHero'
+          WHEN message LIKE '%Batch issues%' THEN 'Stock batch summary'
+          WHEN message LIKE '%missing SKU%' THEN 'Order line missing SKU'
+          WHEN message LIKE '%No SKU mapping%' THEN 'Receipt: no SKU mapping'
+          WHEN message LIKE '%No Korona product%' THEN 'ShipHero→Korona: no product map'
+          WHEN message LIKE '%inventory_remove%' THEN 'Receipt inventory skip'
+          ELSE 'Other warning'
+        END AS category,
+        COUNT(*) AS c
+      FROM sync_log WHERE level = 'warn'
+      GROUP BY category ORDER BY c DESC`
+    )
+    .all() as Array<{ category: string; c: number }>;
+
+  const errorSamples = db
+    .prepare(
+      `SELECT message, COUNT(*) AS c FROM sync_log WHERE level = 'error'
+       GROUP BY message ORDER BY c DESC LIMIT 15`
+    )
+    .all() as Array<{ message: string; c: number }>;
+
+  return { byJobLevel, warnCategories, errorSamples };
+}
+
 export async function groupLogCounts(): Promise<Array<{ level: string; c: number }>> {
   return sqlite()
     .prepare("SELECT level, COUNT(*) AS c FROM sync_log GROUP BY level")

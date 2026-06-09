@@ -291,6 +291,74 @@ export async function deleteWarningLogs(): Promise<number> {
   return data?.length ?? 0;
 }
 
+export interface LogSummary {
+  byJobLevel: Array<{ job: string; level: string; c: number }>;
+  warnCategories: Array<{ category: string; c: number }>;
+  errorSamples: Array<{ message: string; c: number }>;
+}
+
+function categorizeWarnMessage(message: string): string {
+  if (message.includes("not tracked")) return "Korona stock not tracked";
+  if (message.includes("no Korona stock rows")) return "No Korona stock rows";
+  if (message.includes("not in ShipHero")) return "SKU not in ShipHero";
+  if (message.includes("Batch issues")) return "Stock batch summary";
+  if (message.includes("missing SKU")) return "Order line missing SKU";
+  if (message.includes("No SKU mapping")) return "Receipt: no SKU mapping";
+  if (message.includes("No Korona product")) return "ShipHero→Korona: no product map";
+  if (message.includes("inventory_remove")) return "Receipt inventory skip";
+  return "Other warning";
+}
+
+export async function summarizeSyncLogs(): Promise<LogSummary> {
+  const sb = getSupabase();
+  const byJobLevelMap = new Map<string, { job: string; level: string; c: number }>();
+  const warnCatMap = new Map<string, number>();
+  const errorMap = new Map<string, number>();
+
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await sb
+      .from("sync_log")
+      .select("job, level, message")
+      .in("level", ["warn", "error"])
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    if (!data?.length) break;
+
+    for (const row of data) {
+      const job = String(row.job ?? "");
+      const level = String(row.level ?? "");
+      const key = `${job}\0${level}`;
+      const existing = byJobLevelMap.get(key);
+      if (existing) existing.c++;
+      else byJobLevelMap.set(key, { job, level, c: 1 });
+
+      const message = String(row.message ?? "");
+      if (level === "warn") {
+        const cat = categorizeWarnMessage(message);
+        warnCatMap.set(cat, (warnCatMap.get(cat) ?? 0) + 1);
+      } else if (level === "error") {
+        errorMap.set(message, (errorMap.get(message) ?? 0) + 1);
+      }
+    }
+
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const byJobLevel = [...byJobLevelMap.values()].sort((a, b) => b.c - a.c);
+  const warnCategories = [...warnCatMap.entries()]
+    .map(([category, c]) => ({ category, c }))
+    .sort((a, b) => b.c - a.c);
+  const errorSamples = [...errorMap.entries()]
+    .map(([message, c]) => ({ message, c }))
+    .sort((a, b) => b.c - a.c)
+    .slice(0, 15);
+
+  return { byJobLevel, warnCategories, errorSamples };
+}
+
 export async function groupLogCounts(): Promise<Array<{ level: string; c: number }>> {
   const { data, error } = await getSupabase().from("sync_log").select("level");
   if (error) throw new Error(error.message);

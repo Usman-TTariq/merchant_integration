@@ -426,6 +426,16 @@ code {
 .muted { color: var(--muted); font-size: 0.85em; }
 .diff-warn { color: var(--err); font-weight: 600; }
 
+.log-error-list div {
+  grid-template-columns: 1fr auto;
+}
+
+.log-error-list dt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .section-gap {
   margin-top: 28px;
   padding-top: 20px;

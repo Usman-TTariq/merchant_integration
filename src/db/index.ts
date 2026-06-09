@@ -42,6 +42,8 @@ export const countProductsUpdatedSinceMinutes = store.countProductsUpdatedSinceM
 export const latestProductMapping = store.latestProductMapping;
 export const deleteErrorLogs = store.deleteErrorLogs;
 export const deleteWarningLogs = store.deleteWarningLogs;
+export const summarizeSyncLogs = store.summarizeSyncLogs;
+export type { LogSummary } from "./sqlite-store.js";
 export const groupLogCounts = store.groupLogCounts;
 export const recentSyncLogs = store.recentSyncLogs;
 

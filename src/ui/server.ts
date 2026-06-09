@@ -10,6 +10,7 @@ import { isCronAuthorized } from "./cron-auth.js";
 import {
   getCursors,
   getLogs,
+  getLogsSummary,
   getOrdersWithMeta,
   getProducts,
   getReceiptsWithMeta,
@@ -255,6 +256,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         200,
         await getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "")
       );
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/logs/summary") {
+      return sendJson(res, 200, await getLogsSummary());
     }
 
     if (req.method === "GET" && url.pathname === "/api/reports/summary") {

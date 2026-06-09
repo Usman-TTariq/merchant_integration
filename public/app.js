@@ -403,7 +403,50 @@ async function loadReports() {
 
 async function loadLogs() {
   const level = state.logLevel ? `&level=${state.logLevel}` : "";
-  const data = await api(`/api/logs?page=${state.logsPage}&limit=100${level}`);
+  const [data, summary] = await Promise.all([
+    api(`/api/logs?page=${state.logsPage}&limit=100${level}`),
+    api("/api/logs/summary"),
+  ]);
+
+  const warnTotal = summary.warnCategories.reduce((n, r) => n + r.c, 0);
+  const errTotal = summary.errorSamples.reduce((n, r) => n + r.c, 0);
+
+  document.getElementById("logs-summary").innerHTML = `
+    <div class="card">
+      <h3>Warnings by type (${esc(warnTotal)} total)</h3>
+      <dl class="kv">
+        ${summary.warnCategories
+          .map(
+            (r) =>
+              `<div><dt>${esc(r.category)}</dt><dd>${esc(r.c)}</dd></div>`
+          )
+          .join("")}
+      </dl>
+    </div>
+    <div class="card">
+      <h3>Top errors (${esc(errTotal)} unique messages)</h3>
+      <dl class="kv log-error-list">
+        ${summary.errorSamples
+          .map(
+            (r) =>
+              `<div><dt title="${esc(r.message)}">${esc(r.message.length > 70 ? r.message.slice(0, 70) + "…" : r.message)}</dt><dd>${esc(r.c)}×</dd></div>`
+          )
+          .join("") || "<div><dt>—</dt><dd>0</dd></div>"}
+      </dl>
+    </div>
+    <div class="card">
+      <h3>By job</h3>
+      <dl class="kv">
+        ${summary.byJobLevel
+          .map(
+            (r) =>
+              `<div><dt>${esc(r.job)} / ${esc(r.level)}</dt><dd>${esc(r.c)}</dd></div>`
+          )
+          .join("")}
+      </dl>
+    </div>
+  `;
+
   document.getElementById("logs-table").innerHTML = table(
     ["Time", "Job", "Level", "Message"],
     data.rows.map((r) => [
