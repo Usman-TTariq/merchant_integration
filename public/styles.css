@@ -146,6 +146,14 @@ body {
   background: var(--surface2);
 }
 
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  text-decoration: none;
+  display: inline-block;
+  white-space: nowrap;
+}
+
 .sync-msg {
   color: var(--muted);
   font-size: 0.85rem;

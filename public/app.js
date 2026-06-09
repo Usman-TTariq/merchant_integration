@@ -256,8 +256,12 @@ async function loadReceipts() {
   hintEl.hidden = !data.hint;
 
   document.getElementById("receipts-table").innerHTML = table(
-    ["Receipt ID", "Processed at"],
-    data.rows.map((r) => [esc(r.receipt_id), fmtTime(r.processed_at)])
+    ["Receipt ID", "Processed at", ""],
+    data.rows.map((r) => [
+      `<code>${esc(r.receipt_id)}</code>`,
+      fmtTime(r.processed_at),
+      receiptDownloadLink(r.receipt_id),
+    ])
   );
   pager("receipts-pager", data.page, data.total, data.limit, (p) => {
     state.receiptsPage = p;
@@ -266,7 +270,7 @@ async function loadReceipts() {
 
   const live = await api(`/api/korona/receipts?page=${state.koronaReceiptsPage}`);
   document.getElementById("korona-receipts-table").innerHTML = table(
-    ["Number", "ID", "Sale lines", "Revision", "Created", "Modified"],
+    ["Number", "ID", "Sale lines", "Revision", "Created", "Modified", ""],
     live.receipts.map((r) => [
       esc(r.number),
       `<code>${esc(r.id)}</code>`,
@@ -274,6 +278,7 @@ async function loadReceipts() {
       esc(r.revision ?? ""),
       fmtTime(r.creationTime),
       fmtTime(r.modificationTime),
+      receiptDownloadLink(r.id),
     ])
   );
   pager("korona-receipts-pager", live.page, live.total, 100, (p) => {
@@ -289,6 +294,11 @@ function statusBadge(status, label) {
 function qtyCell(value) {
   if (value == null) return '<span class="muted">—</span>';
   return esc(value);
+}
+
+function receiptDownloadLink(receiptId, label = "Download") {
+  const href = `/api/korona/receipts/${encodeURIComponent(receiptId)}/download`;
+  return `<a class="btn secondary btn-sm" href="${href}" download>${esc(label)}</a>`;
 }
 
 function renderReportsSummary(summary) {

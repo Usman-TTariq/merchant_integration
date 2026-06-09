@@ -25,6 +25,7 @@ import {
   sessionCookieHeader,
   verifyPassword,
 } from "./auth.js";
+import { buildReceiptDownload } from "./receipt-download.js";
 import { getReportSummary, getSalesReport, getStockReport } from "./reporting-data.js";
 import {
   getDashboardStatus,
@@ -54,6 +55,14 @@ const MIME: Record<string, string> = {
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
+}
+
+function sendHtmlFile(res: http.ServerResponse, status: number, html: string, filename: string): void {
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
+  res.end(html);
 }
 
 function isSecureRequest(req: http.IncomingMessage): boolean {
@@ -248,6 +257,13 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
     if (req.method === "GET" && url.pathname === "/api/korona/receipts") {
       return sendJson(res, 200, await getKoronaReceiptsLive(Number(q.page ?? 1)));
+    }
+
+    const receiptDownload = url.pathname.match(/^\/api\/korona\/receipts\/([^/]+)\/download$/);
+    if (req.method === "GET" && receiptDownload) {
+      const receiptId = decodeURIComponent(receiptDownload[1]!);
+      const doc = await buildReceiptDownload(receiptId);
+      return sendHtmlFile(res, 200, doc.html, doc.filename);
     }
 
     if (req.method === "GET" && url.pathname === "/api/logs") {
