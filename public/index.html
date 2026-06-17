@@ -44,6 +44,7 @@
       <button class="tab" data-tab="orders" type="button">Orders</button>
       <button class="tab" data-tab="receipts" type="button">Receipts</button>
       <button class="tab" data-tab="reports" type="button">Reports</button>
+      <button class="tab" data-tab="shiphero" type="button">ShipHero</button>
       <button class="tab" data-tab="logs" type="button">Logs</button>
     </nav>
 
@@ -101,6 +102,23 @@
         <h2 class="section-gap">Korona Receipts (live)</h2>
         <div id="korona-receipts-table" class="table-wrap"></div>
         <div class="pager" id="korona-receipts-pager"></div>
+
+        <h2 class="section-gap">ShipHero Inventory Adjustment CSV</h2>
+        <div class="card export-sh-card">
+          <div class="form-row">
+            <label>From date
+              <input type="date" id="sh-csv-from" />
+            </label>
+            <label>To date
+              <input type="date" id="sh-csv-to" />
+            </label>
+            <label>Store name <span class="hint">(optional override)</span>
+              <input type="text" id="sh-csv-store" placeholder="e.g. Sante" />
+            </label>
+            <button class="btn primary" id="sh-csv-btn" type="button">Download CSV</button>
+          </div>
+          <p id="sh-csv-status" class="hint"></p>
+        </div>
       </section>
 
       <section id="tab-reports" class="tab-panel">
@@ -136,6 +154,42 @@
         <p id="reports-loading" class="hint" hidden>Loading live stock from Korona &amp; ShipHero…</p>
         <div id="reports-stock-table" class="table-wrap"></div>
         <div class="pager" id="reports-pager"></div>
+      </section>
+
+      <section id="tab-shiphero" class="tab-panel">
+
+        <!-- ShipHero Orders -->
+        <div class="sh-section-header">
+          <h2>Orders</h2>
+          <div class="sh-controls">
+            <input id="sh-orders-search" class="input" placeholder="Search order number…" type="search" />
+            <select id="sh-orders-status" class="input">
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="fulfilled">Fulfilled</option>
+              <option value="shipped">Shipped</option>
+              <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button id="sh-orders-refresh" class="btn secondary" type="button">↺ Reload</button>
+          </div>
+        </div>
+        <p id="sh-orders-hint" class="sh-status-msg"></p>
+        <div id="sh-orders-table" class="table-wrap sh-table"></div>
+        <div class="pager" id="sh-orders-pager"></div>
+
+        <!-- ShipHero Products -->
+        <div class="sh-section-header section-gap">
+          <h2>Products</h2>
+          <div class="sh-controls">
+            <input id="sh-products-search" class="input" placeholder="Search SKU or name…" type="search" />
+            <button id="sh-products-refresh" class="btn secondary" type="button">↺ Reload</button>
+          </div>
+        </div>
+        <p id="sh-products-hint" class="sh-status-msg"></p>
+        <div id="sh-products-table" class="table-wrap sh-table"></div>
+        <div class="pager" id="sh-products-pager"></div>
+
       </section>
 
       <section id="tab-logs" class="tab-panel">

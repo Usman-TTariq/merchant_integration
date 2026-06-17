@@ -107,9 +107,6 @@ export class ShipHeroClient {
               warehouse_products {
                 warehouse_id
                 on_hand
-                locations(first: 5) {
-                  edges { node { location_id quantity } }
-                }
               }
             }
           }

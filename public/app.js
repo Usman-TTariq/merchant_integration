@@ -18,6 +18,14 @@ const state = {
   productSearch: "",
   logLevel: "",
   displayTimezone: DEFAULT_TIMEZONE,
+  // ShipHero tab
+  shOrdersAfter: null,
+  shOrdersHistory: [],
+  shOrdersSearch: "",
+  shOrdersStatus: "",
+  shProductsAfter: null,
+  shProductsHistory: [],
+  shProductsSearch: "",
 };
 
 function looksLikeIsoTimestamp(value) {
@@ -119,10 +127,22 @@ function pager(containerId, page, total, limit, onPage) {
     <button type="button" ${page <= 1 ? "disabled" : ""} data-p="${page - 1}">Prev</button>
     <span>Page ${page} / ${pages} (${total} total)</span>
     <button type="button" ${page >= pages ? "disabled" : ""} data-p="${page + 1}">Next</button>
+    <span class="pager-goto">
+      <input type="number" min="1" max="${pages}" value="${page}" class="pager-input" title="Go to page" />
+      <button type="button" class="pager-go-btn">Go</button>
+    </span>
   `;
   el.querySelectorAll("button[data-p]").forEach((btn) => {
     btn.addEventListener("click", () => onPage(Number(btn.dataset.p)));
   });
+  const input = el.querySelector(".pager-input");
+  const goBtn = el.querySelector(".pager-go-btn");
+  const goToPage = () => {
+    const p = Math.min(pages, Math.max(1, Number(input.value)));
+    if (p !== page) onPage(p);
+  };
+  goBtn.addEventListener("click", goToPage);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") goToPage(); });
 }
 
 async function loadOverview() {
@@ -390,22 +410,52 @@ async function loadReports() {
     if (state.reportsSearch) q.set("search", state.reportsSearch);
 
     const stock = await api(`/api/reports/stock?${q}`);
-    document.getElementById("reports-stock-table").innerHTML = table(
-      ["Product", "SKU", "Sold", "Korona on-hand", "ShipHero on-hand", "Diff", "Status"],
-      stock.rows.map((r) => [
-        esc(r.productName),
-        `<strong>${esc(r.sku)}</strong>`,
-        r.soldQty > 0 ? esc(r.soldQty) : '<span class="muted">0</span>',
-        qtyCell(r.koronaQty) + (r.koronaSource ? `<span class="muted"> ${esc(r.koronaSource)}</span>` : ""),
-        qtyCell(r.shipheroQty),
-        r.diff == null ? '<span class="muted">—</span>' : `<span class="${r.diff === 0 ? "" : "diff-warn"}">${r.diff > 0 ? "+" : ""}${esc(r.diff)}</span>`,
-        statusBadge(r.status, r.statusLabel),
-      ])
-    );
-    pager("reports-pager", stock.page, stock.total, stock.limit, (p) => {
-      state.reportsPage = p;
-      loadReports();
-    });
+
+    // If search returns no results, try a direct ShipHero SKU lookup
+    if (stock.rows.length === 0 && state.reportsSearch.trim()) {
+      const sku = state.reportsSearch.trim();
+      document.getElementById("reports-stock-table").innerHTML =
+        `<div class="empty">Not in sync database — checking ShipHero directly…</div>`;
+      try {
+        const sh = await api(`/api/shiphero/sku?sku=${encodeURIComponent(sku)}`);
+        if (sh.found) {
+          document.getElementById("reports-stock-table").innerHTML = table(
+            ["Product", "SKU", "Korona on-hand", "ShipHero on-hand", "Status"],
+            [[
+              esc(sh.name ?? "—"),
+              `<strong>${esc(sh.sku)}</strong>`,
+              '<span class="muted">Not mapped</span>',
+              qtyCell(sh.onHand),
+              `<span class="badge badge-warn">Not in Korona sync</span>`,
+            ]]
+          );
+        } else {
+          document.getElementById("reports-stock-table").innerHTML =
+            `<div class="empty">SKU <strong>${esc(sku)}</strong> not found in sync database or ShipHero.</div>`;
+        }
+      } catch {
+        document.getElementById("reports-stock-table").innerHTML =
+          `<div class="empty">SKU not found in sync database. It may not be linked to a Korona product.</div>`;
+      }
+      pager("reports-pager", 1, 0, 25, () => {});
+    } else {
+      document.getElementById("reports-stock-table").innerHTML = table(
+        ["Product", "SKU", "Sold", "Korona on-hand", "ShipHero on-hand", "Diff", "Status"],
+        stock.rows.map((r) => [
+          esc(r.productName),
+          `<strong>${esc(r.sku)}</strong>`,
+          r.soldQty > 0 ? esc(r.soldQty) : '<span class="muted">0</span>',
+          qtyCell(r.koronaQty) + (r.koronaSource ? `<span class="muted"> ${esc(r.koronaSource)}</span>` : ""),
+          qtyCell(r.shipheroQty),
+          r.diff == null ? '<span class="muted">—</span>' : `<span class="${r.diff === 0 ? "" : "diff-warn"}">${r.diff > 0 ? "+" : ""}${esc(r.diff)}</span>`,
+          statusBadge(r.status, r.statusLabel),
+        ])
+      );
+      pager("reports-pager", stock.page, stock.total, stock.limit, (p) => {
+        state.reportsPage = p;
+        loadReports();
+      });
+    }
   } finally {
     loading.hidden = true;
   }
@@ -472,6 +522,126 @@ async function loadLogs() {
   });
 }
 
+// ─── ShipHero Tab ────────────────────────────────────────────────────────────
+
+function shStatusBadge(status) {
+  if (!status) return '<span class="muted">—</span>';
+  const cls = status === "fulfilled" || status === "shipped" || status === "closed"
+    ? "report-status-synced"
+    : status === "pending"
+    ? "report-status-pending"
+    : "report-status-error";
+  return `<span class="report-status ${cls}">${esc(status)}</span>`;
+}
+
+async function loadShipheroOrders() {
+  const hint = document.getElementById("sh-orders-hint");
+  hint.textContent = "Loading orders…";
+  try {
+    const params = new URLSearchParams({ limit: "25" });
+    if (state.shOrdersAfter) params.set("after", state.shOrdersAfter);
+    if (state.shOrdersSearch) params.set("search", state.shOrdersSearch);
+    if (state.shOrdersStatus) params.set("status", state.shOrdersStatus);
+
+    const data = await api(`/api/shiphero/orders?${params}`);
+    const orders = data.orders ?? [];
+    hint.textContent = orders.length ? "" : "No orders found for this filter.";
+
+    document.getElementById("sh-orders-table").innerHTML = table(
+      ["Order #", "Status", "Updated", "Ship To", "SKUs"],
+      orders.map((o) => {
+        const edges = o.line_items?.edges ?? [];
+        const skuList = edges.map((e) => `<code>${esc(e.node.sku)}</code> ×${esc(e.node.quantity)}`).join(" &nbsp;");
+        const addr = o.shipping_address
+          ? [o.shipping_address.full_name, o.shipping_address.city, o.shipping_address.state].filter(Boolean).join(", ")
+          : "";
+        return [
+          `<strong>${esc(o.order_number ?? "")}</strong><br><span class="muted" style="font-size:0.8rem">${esc(o.partner_order_id ?? "")}</span>`,
+          shStatusBadge(o.fulfillment_status),
+          fmtTime(o.updated_at),
+          esc(addr),
+          skuList || '<span class="muted">—</span>',
+        ];
+      })
+    );
+
+    // cursor-based pager
+    const { hasNextPage, endCursor } = data.pageInfo ?? {};
+    const pagerEl = document.getElementById("sh-orders-pager");
+    const histLen = state.shOrdersHistory.length;
+    pagerEl.innerHTML = `
+      ${histLen > 0 ? `<button type="button" id="sh-orders-prev">Prev</button>` : ""}
+      <span class="muted" style="font-size:0.85rem">Page ${histLen + 1}</span>
+      ${hasNextPage ? `<button type="button" id="sh-orders-next">Next</button>` : ""}
+    `;
+    pagerEl.querySelector("#sh-orders-prev")?.addEventListener("click", () => {
+      state.shOrdersAfter = state.shOrdersHistory.pop() ?? null;
+      loadShipheroOrders();
+    });
+    pagerEl.querySelector("#sh-orders-next")?.addEventListener("click", () => {
+      state.shOrdersHistory.push(state.shOrdersAfter);
+      state.shOrdersAfter = endCursor;
+      loadShipheroOrders();
+    });
+  } catch (err) {
+    hint.textContent = "Error: " + err.message;
+  }
+}
+
+async function loadShipheroProducts() {
+  const hint = document.getElementById("sh-products-hint");
+  hint.textContent = "Loading products…";
+  try {
+    const params = new URLSearchParams({ limit: "25" });
+    if (state.shProductsAfter) params.set("after", state.shProductsAfter);
+    if (state.shProductsSearch) params.set("search", state.shProductsSearch);
+
+    const data = await api(`/api/shiphero/products?${params}`);
+    const products = data.products ?? [];
+    hint.textContent = products.length ? "" : "No products found for this search.";
+
+    document.getElementById("sh-products-table").innerHTML = table(
+      ["Name", "SKU", "On Hand", "Available", "Allocated", "Backorder", "Price", "Value"],
+      products.map((p) => [
+        `<a class="link" href="https://app.shiphero.com/dashboard/products/v2/manage?search=${encodeURIComponent(p.sku)}" target="_blank" rel="noopener">${esc(p.name || p.sku)}</a>`,
+        `<code>${esc(p.sku)}</code>`,
+        esc(p.onHand ?? 0),
+        esc(p.available ?? 0),
+        esc(p.allocated ?? 0),
+        esc(p.backorder ?? 0),
+        p.price ? esc(p.price) : '<span class="muted">—</span>',
+        p.value ? esc(p.value) : '<span class="muted">—</span>',
+      ])
+    );
+
+    const { hasNextPage, endCursor } = data.pageInfo ?? {};
+    const pagerEl = document.getElementById("sh-products-pager");
+    const histLen = state.shProductsHistory.length;
+    pagerEl.innerHTML = `
+      ${histLen > 0 ? `<button type="button" id="sh-products-prev">Prev</button>` : ""}
+      <span class="muted" style="font-size:0.85rem">Page ${histLen + 1}</span>
+      ${hasNextPage ? `<button type="button" id="sh-products-next">Next</button>` : ""}
+    `;
+    pagerEl.querySelector("#sh-products-prev")?.addEventListener("click", () => {
+      state.shProductsAfter = state.shProductsHistory.pop() ?? null;
+      loadShipheroProducts();
+    });
+    pagerEl.querySelector("#sh-products-next")?.addEventListener("click", () => {
+      state.shProductsHistory.push(state.shProductsAfter);
+      state.shProductsAfter = endCursor;
+      loadShipheroProducts();
+    });
+  } catch (err) {
+    hint.textContent = "Error: " + err.message;
+  }
+}
+
+async function loadShiphero() {
+  await Promise.all([loadShipheroOrders(), loadShipheroProducts()]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function loadActiveTab() {
   try {
     if (state.tab === "overview") await loadOverview();
@@ -480,6 +650,7 @@ async function loadActiveTab() {
     if (state.tab === "orders") await loadOrders();
     if (state.tab === "receipts") await loadReceipts();
     if (state.tab === "reports") await loadReports();
+    if (state.tab === "shiphero") await loadShiphero();
     if (state.tab === "logs") await loadLogs();
   } catch (err) {
     console.error(err);
@@ -599,5 +770,96 @@ document.getElementById("btn-clear-warnings").addEventListener("click", async ()
   }
 });
 
+// ShipHero tab event listeners
+document.getElementById("sh-orders-search").addEventListener("input", (e) => {
+  state.shOrdersSearch = e.target.value;
+  state.shOrdersAfter = null;
+  state.shOrdersHistory = [];
+  clearTimeout(window._shOrdersTimer);
+  window._shOrdersTimer = setTimeout(() => {
+    if (state.tab === "shiphero") loadShipheroOrders();
+  }, 400);
+});
+
+document.getElementById("sh-orders-status").addEventListener("change", (e) => {
+  state.shOrdersStatus = e.target.value;
+  state.shOrdersAfter = null;
+  state.shOrdersHistory = [];
+  if (state.tab === "shiphero") loadShipheroOrders();
+});
+
+document.getElementById("sh-orders-refresh").addEventListener("click", () => {
+  state.shOrdersAfter = null;
+  state.shOrdersHistory = [];
+  if (state.tab === "shiphero") loadShipheroOrders();
+});
+
+document.getElementById("sh-products-search").addEventListener("input", (e) => {
+  state.shProductsSearch = e.target.value;
+  state.shProductsAfter = null;
+  state.shProductsHistory = [];
+  clearTimeout(window._shProductsTimer);
+  window._shProductsTimer = setTimeout(() => {
+    if (state.tab === "shiphero") loadShipheroProducts();
+  }, 400);
+});
+
+document.getElementById("sh-products-refresh").addEventListener("click", () => {
+  state.shProductsAfter = null;
+  state.shProductsHistory = [];
+  if (state.tab === "shiphero") loadShipheroProducts();
+});
+
+// ShipHero Inventory CSV: set default date range (last 7 days)
+(function () {
+  const toDate = new Date();
+  const fromDate = new Date();
+  fromDate.setDate(toDate.getDate() - 7);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const fromEl = document.getElementById("sh-csv-from");
+  const toEl = document.getElementById("sh-csv-to");
+  if (fromEl && !fromEl.value) fromEl.value = fmt(fromDate);
+  if (toEl && !toEl.value) toEl.value = fmt(toDate);
+})();
+
+document.getElementById("sh-csv-btn").addEventListener("click", async () => {
+  const from = document.getElementById("sh-csv-from").value.trim();
+  const to = document.getElementById("sh-csv-to").value.trim();
+  const store = document.getElementById("sh-csv-store").value.trim();
+  const status = document.getElementById("sh-csv-status");
+
+  if (!from || !to) {
+    status.textContent = "Please select both From and To dates.";
+    return;
+  }
+
+  status.textContent = "Generating CSV… this may take a minute.";
+  const btn = document.getElementById("sh-csv-btn");
+  btn.disabled = true;
+
+  try {
+    let url = `/api/export/shiphero-inventory.csv?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    if (store) url += `&store=${encodeURIComponent(store)}`;
+
+    const res = await fetch(url, { credentials: "same-origin" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? res.statusText);
+    }
+
+    const blob = await res.blob();
+    const anchor = document.createElement("a");
+    anchor.href = URL.createObjectURL(blob);
+    anchor.download = `shiphero-inventory-${from}-to-${to}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(anchor.href);
+    status.textContent = "CSV downloaded successfully.";
+  } catch (err) {
+    status.textContent = "Error: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 refreshAll();
-setInterval(refreshAll, 15000);
+setInterval(refreshAll, 30000);

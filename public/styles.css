@@ -98,6 +98,17 @@ body {
 
 .badge.loading { color: var(--muted); }
 
+.badge-warn {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+}
+
 .actions {
   display: flex;
   align-items: center;
@@ -374,6 +385,43 @@ code {
 
 .pager button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.pager-goto {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.pager-input {
+  width: 62px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.pager-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pager-go-btn {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.pager-go-btn:hover {
+  opacity: 0.85;
+}
+
 .empty {
   padding: 32px;
   text-align: center;
@@ -392,6 +440,7 @@ code {
   color: #92400e;
   font-size: 0.9rem;
 }
+.hint:empty { display: none; }
 
 #load-error.hint {
   background: var(--err-bg);
@@ -430,8 +479,12 @@ code {
 .report-status-untracked { background: var(--warn-bg); color: var(--warn); }
 .report-status-no_rows { background: var(--warn-bg); color: var(--warn); }
 .report-status-missing_sh { background: var(--err-bg); color: var(--err); }
+.report-status-pending { background: var(--warn-bg); color: var(--warn); }
+.report-status-error { background: var(--err-bg); color: var(--err); }
 
 .muted { color: var(--muted); font-size: 0.85em; }
+a.link { color: var(--accent); text-decoration: none; }
+a.link:hover { text-decoration: underline; }
 .diff-warn { color: var(--err); font-weight: 600; }
 
 .log-error-list div {
@@ -449,3 +502,102 @@ code {
   padding-top: 20px;
   border-top: 1px solid var(--border);
 }
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.form-row input[type="date"],
+.form-row input[type="text"] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.88rem;
+  min-width: 140px;
+}
+
+.export-sh-card {
+  margin-top: 12px;
+  max-width: 700px;
+}
+
+/* ── ShipHero Tab ─────────────────────────────────────────────────────────── */
+.sh-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sh-section-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sh-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sh-controls .input {
+  min-width: 180px;
+}
+
+.sh-status-msg {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 10px;
+  min-height: 0;
+}
+.sh-status-msg:empty { display: none; }
+
+.sh-table table {
+  width: 100%;
+}
+
+.sh-table th {
+  white-space: nowrap;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface2);
+  padding: 8px 12px;
+}
+
+.sh-table td {
+  padding: 9px 12px;
+  font-size: 0.88rem;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+
+.sh-table td code {
+  font-size: 0.82rem;
+  background: var(--surface2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.sh-table tr:last-child td { border-bottom: none; }
+.sh-table tr:hover td { background: var(--surface2); }

@@ -154,6 +154,71 @@ export async function exportAllReceiptsCsv(): Promise<{ csv: string; receiptCoun
   return { csv: rows.join("\n"), receiptCount, lineCount };
 }
 
+function formatShDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
+}
+
+export async function exportShipheroInventoryCsv(opts: {
+  from: string;
+  to: string;
+  storeName?: string;
+}): Promise<{ csv: string; skuCount: number }> {
+  const korona = new KoronaClient();
+
+  // Korona API expects ISO 8601 datetime strings
+  const minCreateTime = `${opts.from}T00:00:00`;
+  const maxCreateTime = `${opts.to}T23:59:59`;
+
+  const skuTotals = new Map<string, number>();
+  let detectedStore = opts.storeName ?? "";
+  let page = 1;
+
+  while (page <= MAX_RECEIPT_PAGES) {
+    const list = await korona.getReceipts({ page, minCreateTime, maxCreateTime });
+    const batch = list.results ?? [];
+    if (!batch.length) break;
+
+    for (const receipt of batch) {
+      if (receipt.cancelled || receipt.voided) continue;
+
+      if (!detectedStore && receipt.organizationalUnit?.name) {
+        detectedStore = receipt.organizationalUnit.name;
+      }
+
+      let full: KoronaReceipt = receipt;
+      if (!receiptHasSaleLines(receipt)) {
+        try {
+          full = await korona.getReceipt(receipt.id);
+        } catch {
+          continue;
+        }
+      }
+
+      const lines = quickLines(full);
+      for (const line of lines) {
+        if (!line.sku) continue;
+        skuTotals.set(line.sku, (skuTotals.get(line.sku) ?? 0) + line.qty);
+      }
+    }
+
+    if (page >= (list.pagesTotal ?? page)) break;
+    page++;
+  }
+
+  const storePart = detectedStore || "Store";
+  const reason = `${storePart} ${formatShDate(opts.from)} - ${formatShDate(opts.to)}`;
+
+  const rows = ["Sku,Action,Quantity,Location,Reason"];
+  for (const [sku, qty] of skuTotals) {
+    if (qty <= 0) continue;
+    rows.push(csvRow([sku, "change", String(-Math.round(qty)), "Unassigned", reason]));
+  }
+
+  return { csv: rows.join("\n"), skuCount: skuTotals.size };
+}
+
 export async function exportAllLogsCsv(level = ""): Promise<{ csv: string; rowCount: number }> {
   const rows: string[] = [csvRow(["id", "created_at", "job", "level", "message"])];
   const all: Record<string, unknown>[] = [];

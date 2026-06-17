@@ -84,12 +84,14 @@ export class KoronaClient {
     });
   }
 
-  getReceipts(opts?: { revision?: number; page?: number }): Promise<KoronaResultList<KoronaReceipt>> {
+  getReceipts(opts?: { revision?: number; page?: number; minCreateTime?: string; maxCreateTime?: string }): Promise<KoronaResultList<KoronaReceipt>> {
     const query = this.buildQuery({
       page: opts?.page ?? 1,
       size: config.sync.pageSize,
       revision: opts?.revision,
       sort: "revision",
+      minCreateTime: opts?.minCreateTime,
+      maxCreateTime: opts?.maxCreateTime,
     });
     return this.request(this.accountPath(`/receipts${query}`));
   }
@@ -121,6 +123,7 @@ export class KoronaClient {
   async getProductStocksSafe(productId: string): Promise<KoronaProductStock[] | null> {
     try {
       const list = await this.getProductStocks(productId);
+      if (!list) return [];
       return list.results ?? [];
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

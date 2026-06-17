@@ -25,7 +25,7 @@ import {
   sessionCookieHeader,
   verifyPassword,
 } from "./auth.js";
-import { exportAllLogsCsv, exportAllReceiptsCsv } from "./export-data.js";
+import { exportAllLogsCsv, exportAllReceiptsCsv, exportShipheroInventoryCsv } from "./export-data.js";
 import { buildReceiptDownload } from "./receipt-download.js";
 import { getReportSummary, getSalesReport, getStockReport } from "./reporting-data.js";
 import {
@@ -42,6 +42,31 @@ const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
 const PORT = Number(process.env.DASHBOARD_PORT ?? "3847");
 
 let syncRunning = false;
+
+// ─── Simple in-memory cache ───────────────────────────────────────────────────
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+  inflight?: Promise<T>;
+}
+const _cache = new Map<string, CacheEntry<unknown>>();
+
+function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const entry = _cache.get(key) as CacheEntry<T> | undefined;
+  if (entry && now < entry.expiresAt) return Promise.resolve(entry.data);
+  if (entry?.inflight) return entry.inflight;
+  const inflight: Promise<T> = fn().then((data) => {
+    _cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+    return data;
+  }).finally(() => {
+    const e = _cache.get(key) as CacheEntry<T> | undefined;
+    if (e) delete e.inflight;
+  });
+  _cache.set(key, { data: (entry?.data ?? null) as T, expiresAt: 0, inflight });
+  return inflight;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -286,6 +311,14 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       return sendCsvFile(res, 200, result.csv, `sync-logs${suffix}.csv`);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/export/shiphero-inventory.csv") {
+      const from = q.from?.trim() ?? "";
+      const to = q.to?.trim() ?? "";
+      if (!from || !to) return sendJson(res, 400, { error: "from and to query params required (YYYY-MM-DD)" });
+      const result = await exportShipheroInventoryCsv({ from, to, storeName: q.store?.trim() });
+      return sendCsvFile(res, 200, result.csv, `shiphero-inventory-${from}-to-${to}.csv`);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/logs") {
       return sendJson(
         res,
@@ -314,6 +347,222 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
           days: Number(q.days ?? 1),
         })
       );
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/shiphero/sku") {
+      const sku = q.sku?.trim();
+      if (!sku) return sendJson(res, 400, { error: "sku required" });
+      try {
+        const { ShipHeroClient } = await import("../clients/shiphero.js");
+        const sh = new ShipHeroClient();
+        const product = await sh.getProductBySku(sku);
+        if (!product) return sendJson(res, 404, { found: false, sku });
+        const { requireShipheroWarehouseId } = await import("../config.js");
+        const warehouseId = requireShipheroWarehouseId();
+        const row = product.warehouse_products?.find((w) => w.warehouse_id === warehouseId);
+        return sendJson(res, 200, {
+          found: true,
+          sku: product.sku,
+          name: product.name,
+          onHand: row?.on_hand ?? 0,
+        });
+      } catch (err) {
+        return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/shiphero/orders") {
+      try {
+        const { ShipHeroClient } = await import("../clients/shiphero.js");
+        const sh = new ShipHeroClient();
+        const search = (q.search ?? "").trim().toLowerCase();
+        const statusFilter = (q.status ?? "").trim().toLowerCase();
+        const after = q.after?.trim() || null;
+        const first = Math.min(Number(q.limit ?? 25), 50);
+
+        type OrderNode = {
+          id: string;
+          order_number: string;
+          partner_order_id: string;
+          fulfillment_status: string;
+          updated_at: string;
+          shipping_address: { first_name?: string; last_name?: string; city?: string; state?: string; country?: string } | null;
+          line_items: { edges: Array<{ node: { sku: string; quantity: number; quantity_shipped: number; fulfillment_status: string } }> };
+        };
+        type OrdersResp = {
+          orders: {
+            data: {
+              pageInfo: { hasNextPage: boolean; endCursor: string | null };
+              edges: Array<{ node: OrderNode }>;
+            };
+          };
+        };
+
+        // Cache per page/cursor — orders change rarely; 2 min TTL
+        const cacheKey = `sh:orders:${first}:${after ?? "start"}`;
+        const raw = await cached(cacheKey, 2 * 60_000, () =>
+          sh.graphql<OrdersResp>(
+            `query ShOrders($first: Int, $after: String) {
+              orders {
+                data(first: $first, after: $after) {
+                  pageInfo { hasNextPage endCursor }
+                  edges {
+                    node {
+                      id
+                      order_number
+                      partner_order_id
+                      fulfillment_status
+                      updated_at
+                      shipping_address { first_name last_name city state country }
+                      line_items(first: 30) {
+                        edges {
+                          node { sku quantity quantity_shipped fulfillment_status }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }`,
+            { first, after }
+          )
+        );
+
+        const conn = raw.orders.data;
+        let orders = conn.edges.map((e) => {
+          const n = e.node;
+          const addr = n.shipping_address;
+          return {
+            ...n,
+            shipping_address: addr
+              ? { ...addr, full_name: `${addr.first_name ?? ""} ${addr.last_name ?? ""}`.trim() }
+              : null,
+          };
+        });
+
+        // client-side filter (search + status)
+        if (search) orders = orders.filter((o) => o.order_number?.toLowerCase().includes(search) || o.partner_order_id?.toLowerCase().includes(search));
+        if (statusFilter) orders = orders.filter((o) => (o.fulfillment_status ?? "").toLowerCase() === statusFilter);
+
+        return sendJson(res, 200, { orders, pageInfo: conn.pageInfo });
+      } catch (err) {
+        return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/shiphero/products") {
+      try {
+        const { ShipHeroClient } = await import("../clients/shiphero.js");
+        const sh = new ShipHeroClient();
+        const search = (q.search ?? "").trim().toLowerCase();
+        const after = q.after?.trim() || null;
+        const first = Math.min(Number(q.limit ?? 25), 50);
+
+        type ProductsResp = {
+          products: {
+            data: {
+              pageInfo: { hasNextPage: boolean; endCursor: string | null };
+              edges: Array<{ node: Record<string, unknown> }>;
+            };
+          };
+        };
+
+        // Cache per page/cursor only when NOT searching (search needs fresh filtered results)
+        const cacheKey = `sh:products:${first}:${after ?? "start"}`;
+        const rawData = await cached(cacheKey, 5 * 60_000, () =>
+          sh.graphql<ProductsResp>(
+            `query ShProducts($first: Int, $after: String) {
+              products {
+                data(first: $first, after: $after) {
+                  pageInfo { hasNextPage endCursor }
+                  edges {
+                    node {
+                      id
+                      sku
+                      name
+                      barcode
+                      price
+                      value
+                      warehouse_products {
+                        warehouse_id
+                        on_hand
+                        available
+                        allocated
+                        backorder
+                      }
+                    }
+                  }
+                }
+              }
+            }`,
+            { first, after }
+          )
+        );
+
+        const conn = rawData.products.data;
+        const { requireShipheroWarehouseId } = await import("../config.js");
+        let warehouseId = "";
+        try { warehouseId = requireShipheroWarehouseId(); } catch { /* ignore */ }
+
+        let products = conn.edges.map((e) => {
+          const p = e.node as {
+            id: string; sku: string; name: string; barcode?: string; price?: string; value?: string;
+            warehouse_products?: Array<{ warehouse_id: string; on_hand: number; available?: number; allocated?: number; backorder?: number }>;
+          };
+          const row = p.warehouse_products?.find((w) => w.warehouse_id === warehouseId);
+          return {
+            id: p.id,
+            sku: p.sku ?? "",
+            name: p.name ?? "",
+            barcode: p.barcode ?? "",
+            price: p.price ?? "",
+            value: p.value ?? "",
+            onHand: row?.on_hand ?? 0,
+            available: row?.available ?? 0,
+            allocated: row?.allocated ?? 0,
+            backorder: row?.backorder ?? 0,
+          };
+        });
+
+        // If searching: try direct SKU lookup first (exact), then filter current page
+        if (search) {
+          // Direct exact-match lookup via product(sku:) query
+          try {
+            const exactResult = await sh.graphql<{ product: { data: { id: string; sku: string; name: string; barcode?: string; price?: string; value?: string; warehouse_products?: Array<{ warehouse_id: string; on_hand: number; available?: number; allocated?: number; backorder?: number }> } | null } }>(
+              `query SearchBySku($sku: String!) {
+                product(sku: $sku) {
+                  data {
+                    id sku name barcode price value
+                    warehouse_products { warehouse_id on_hand available allocated backorder }
+                  }
+                }
+              }`,
+              { sku: q.search?.trim() }
+            );
+            if (exactResult.product.data) {
+              const p = exactResult.product.data;
+              const row = p.warehouse_products?.find((w) => w.warehouse_id === warehouseId);
+              return sendJson(res, 200, {
+                products: [{
+                  id: p.id, sku: p.sku ?? "", name: p.name ?? "", barcode: p.barcode ?? "",
+                  price: p.price ?? "", value: p.value ?? "",
+                  onHand: row?.on_hand ?? 0, available: row?.available ?? 0,
+                  allocated: row?.allocated ?? 0, backorder: row?.backorder ?? 0,
+                }],
+                pageInfo: { hasNextPage: false, endCursor: null },
+                searchMatch: "exact",
+              });
+            }
+          } catch { /* fall through to page filter */ }
+
+          // Fallback: filter current page results
+          products = products.filter((p) => p.sku?.toLowerCase().includes(search) || p.name?.toLowerCase().includes(search));
+        }
+
+        return sendJson(res, 200, { products, pageInfo: search ? { hasNextPage: false, endCursor: null } : conn.pageInfo });
+      } catch (err) {
+        return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
     }
 
     if (req.method === "GET" && url.pathname === "/api/reports/sales") {

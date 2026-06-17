@@ -63,24 +63,49 @@ export async function checkShipHero(): Promise<ServiceStatus> {
   }
 }
 
+// Cache status for 60 s to avoid hammering external APIs on every dashboard refresh
+let _statusCache: { data: DashboardStatus; expiresAt: number } | null = null;
+let _statusInflight: Promise<DashboardStatus> | null = null;
+const STATUS_TTL_MS = 60_000;
+
 export async function getDashboardStatus(): Promise<DashboardStatus> {
-  const [korona, shiphero] = await Promise.all([checkKorona(), checkShipHero()]);
-  return {
-    korona,
-    shiphero,
-    config: {
-      accountId: config.korona.accountId,
-      skuField: config.sync.skuField,
-      warehouseId: config.shiphero.warehouseId ?? null,
-      shipheroAuthMode: config.shiphero.authMode,
-      databaseProvider: config.database.provider,
-      databaseDetail:
-        config.database.provider === "supabase"
-          ? (config.database.supabaseUrl ?? "supabase")
-          : config.database.sqlitePath,
-      displayTimezone: config.dashboard.displayTimezone,
-    },
-  };
+  const now = Date.now();
+
+  // Return cached value if still fresh
+  if (_statusCache && now < _statusCache.expiresAt) {
+    return _statusCache.data;
+  }
+
+  // Deduplicate concurrent callers — only one external fetch at a time
+  if (_statusInflight) return _statusInflight;
+
+  _statusInflight = (async () => {
+    try {
+      const [korona, shiphero] = await Promise.all([checkKorona(), checkShipHero()]);
+      const result: DashboardStatus = {
+        korona,
+        shiphero,
+        config: {
+          accountId: config.korona.accountId,
+          skuField: config.sync.skuField,
+          warehouseId: config.shiphero.warehouseId ?? null,
+          shipheroAuthMode: config.shiphero.authMode,
+          databaseProvider: config.database.provider,
+          databaseDetail:
+            config.database.provider === "supabase"
+              ? (config.database.supabaseUrl ?? "supabase")
+              : config.database.sqlitePath,
+          displayTimezone: config.dashboard.displayTimezone,
+        },
+      };
+      _statusCache = { data: result, expiresAt: Date.now() + STATUS_TTL_MS };
+      return result;
+    } finally {
+      _statusInflight = null;
+    }
+  })();
+
+  return _statusInflight;
 }
 
 export async function getKoronaProductsLive(page = 1) {
