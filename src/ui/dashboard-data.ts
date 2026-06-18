@@ -12,6 +12,23 @@ import { KoronaClient } from "../clients/korona.js";
 import { formatRowTimes } from "./format-time.js";
 import { getKoronaReceiptsLive } from "./status.js";
 
+let _koronaReceiptCountCache: { total: number; expiresAt: number } | null = null;
+const KORONA_RECEIPT_COUNT_TTL_MS = 60_000;
+
+async function getKoronaReceiptCountCached(): Promise<number> {
+  const now = Date.now();
+  if (_koronaReceiptCountCache && now < _koronaReceiptCountCache.expiresAt) {
+    return _koronaReceiptCountCache.total;
+  }
+  try {
+    const live = await getKoronaReceiptsLive(1);
+    _koronaReceiptCountCache = { total: live.total, expiresAt: now + KORONA_RECEIPT_COUNT_TTL_MS };
+    return live.total;
+  } catch {
+    return -1;
+  }
+}
+
 export interface DashboardStats {
   productMappings: number;
   orderMappings: number;
@@ -108,23 +125,17 @@ export async function getReceipts(page = 1, limit = 50, search = "") {
 
 export async function getReceiptsWithMeta(page = 1, limit = 50, search = "") {
   const result = await getReceipts(page, limit, search);
-  let koronaTotal = 0;
-  try {
-    const live = await getKoronaReceiptsLive(1);
-    koronaTotal = live.total;
-  } catch {
-    koronaTotal = -1;
-  }
+  const koronaTotal = search ? -1 : await getKoronaReceiptCountCached();
 
   let hint: string | undefined;
-  if (result.total === 0) {
+  if (result.total === 0 && koronaTotal >= 0) {
     if (koronaTotal === 0) {
       hint = "No receipts in Korona yet. Sales receipts appear after POS transactions.";
     } else if (koronaTotal > 0) {
       hint = `${koronaTotal} receipt(s) in Korona but none processed yet. Run Sync Inventory to push sales to ShipHero.`;
-    } else {
-      hint = "Could not reach Korona to check receipts.";
     }
+  } else if (result.total === 0 && koronaTotal < 0) {
+    hint = "Could not reach Korona to check receipts.";
   }
 
   return {

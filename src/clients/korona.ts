@@ -99,6 +99,7 @@ export class KoronaClient {
     page?: number;
     size?: number;
     number?: string;
+    product?: string;
     minCreateTime?: string;
     maxCreateTime?: string;
   }): Promise<KoronaResultList<KoronaReceipt>> {
@@ -108,6 +109,7 @@ export class KoronaClient {
       revision: opts?.revision,
       sort: "revision",
       number: opts?.number,
+      product: opts?.product,
       minCreateTime: opts?.minCreateTime,
       maxCreateTime: opts?.maxCreateTime,
     });

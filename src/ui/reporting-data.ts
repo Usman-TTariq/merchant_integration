@@ -14,14 +14,16 @@ import {
 } from "../db.js";
 import { aggregateKoronaSales } from "../utils/report-sales.js";
 import { resolveKoronaStockQuantity } from "../utils/korona-product-stock.js";
-import { getDashboardStatus } from "./status.js";
+import { getDashboardStatus, searchKoronaProducts } from "./status.js";
+import type { KoronaProduct } from "../types/korona.js";
 
 export type StockReportStatus =
   | "synced"
   | "mismatch"
   | "untracked"
   | "no_rows"
-  | "missing_sh";
+  | "missing_sh"
+  | "unmapped";
 
 export interface StockReportRow {
   sku: string;
@@ -73,6 +75,7 @@ export interface ReportSummary {
     untracked: number;
     noRows: number;
     missingShiphero: number;
+    unmapped: number;
   };
 }
 
@@ -190,6 +193,99 @@ async function buildStockRow(
   };
 }
 
+async function buildStockRowFromKoronaProduct(
+  korona: KoronaClient,
+  shiphero: ShipHeroClient,
+  product: KoronaProduct,
+  salesMap?: Map<string, { soldQty: number; productName: string }>
+): Promise<StockReportRow> {
+  const koronaProductId = product.id;
+  const sku = product.number ?? product.id;
+  const koronaNumber = product.number ?? null;
+
+  let koronaQty: number | null = null;
+  let koronaSource: string | null = null;
+  let koronaStatus = "ok";
+
+  try {
+    const resolved = await resolveKoronaStockQuantity(korona, koronaProductId, {
+      autoEnableTracking: false,
+    });
+    if (resolved.status === "ok") {
+      koronaQty = resolved.qty;
+      koronaSource = resolved.source;
+    } else {
+      koronaStatus = resolved.status;
+    }
+  } catch {
+    koronaStatus = "no_rows";
+  }
+
+  let shipheroQty: number | null = null;
+  const productName = product.name ?? salesMap?.get(sku)?.productName ?? null;
+  try {
+    const shProduct = await shiphero.getProductBySku(sku);
+    if (shProduct) {
+      shipheroQty = shiphero.getWarehouseOnHand(shProduct);
+    }
+  } catch {
+    shipheroQty = null;
+  }
+
+  const soldQty = salesMap?.get(sku)?.soldQty ?? 0;
+  const diff = koronaQty != null && shipheroQty != null ? shipheroQty - koronaQty : null;
+  const mapped = await findKoronaProductIdBySku(sku);
+  const classified = classifyStockRow(koronaQty, koronaStatus, shipheroQty);
+
+  if (!mapped) {
+    return {
+      sku,
+      productName,
+      koronaNumber,
+      koronaProductId,
+      koronaQty,
+      koronaSource,
+      shipheroQty,
+      soldQty,
+      diff,
+      status: "unmapped",
+      statusLabel: "Not mapped — run Sync Products",
+    };
+  }
+
+  return {
+    sku,
+    productName,
+    koronaNumber,
+    koronaProductId,
+    koronaQty,
+    koronaSource,
+    shipheroQty,
+    soldQty,
+    diff,
+    status: classified.status,
+    statusLabel: classified.statusLabel,
+  };
+}
+
+async function stockRowsFromKoronaLiveSearch(
+  korona: KoronaClient,
+  shiphero: ShipHeroClient,
+  term: string,
+  salesMap: Map<string, { soldQty: number; productName: string }>,
+  filter: string
+): Promise<StockReportRow[]> {
+  const list = await searchKoronaProducts(korona, term, 1, 5);
+  const rows: StockReportRow[] = [];
+  for (const product of list.results ?? []) {
+    const row = await buildStockRowFromKoronaProduct(korona, shiphero, product, salesMap);
+    if (filter === "all" || row.status === filter) {
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
 function tallyStockRows(rows: StockReportRow[]) {
   return {
     sampled: rows.length,
@@ -198,6 +294,7 @@ function tallyStockRows(rows: StockReportRow[]) {
     untracked: rows.filter((r) => r.status === "untracked").length,
     noRows: rows.filter((r) => r.status === "no_rows").length,
     missingShiphero: rows.filter((r) => r.status === "missing_sh").length,
+    unmapped: rows.filter((r) => r.status === "unmapped").length,
   };
 }
 
@@ -382,6 +479,17 @@ export async function getStockReport(opts: {
   }
 
   results.push(...matched.slice(targetStart, targetEnd));
+
+  if (search && results.length === 0) {
+    const liveRows = await stockRowsFromKoronaLiveSearch(korona, shiphero, search, salesMap, filter);
+    return {
+      rows: liveRows.slice(0, limit),
+      page,
+      limit,
+      total: liveRows.length,
+      scanned: liveRows.length,
+    };
+  }
 
   return {
     rows: results,

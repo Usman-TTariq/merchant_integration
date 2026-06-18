@@ -28,3 +28,21 @@ function isProductLine(item: KoronaReceiptItem): boolean {
 export function receiptHasSaleLines(receipt: KoronaReceipt): boolean {
   return receiptSaleLines(receipt).length > 0;
 }
+
+export function saleLineMatchesProduct(
+  line: KoronaSaleLine,
+  productId: string,
+  productNumber?: string
+): boolean {
+  if (line.product?.id === productId) return true;
+  if (!productNumber) return false;
+  return line.product?.number === productNumber || line.recognitionCode === productNumber;
+}
+
+export function receiptLinesMatchProduct(
+  lines: KoronaSaleLine[],
+  productId: string,
+  productNumber?: string
+): boolean {
+  return lines.some((line) => saleLineMatchesProduct(line, productId, productNumber));
+}

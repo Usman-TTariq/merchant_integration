@@ -203,6 +203,12 @@ function searchQuery(term) {
   return q ? `&search=${encodeURIComponent(q)}` : "";
 }
 
+function showTableError(containerId, err, prefix = "Error") {
+  const msg = err instanceof Error ? err.message : String(err);
+  document.getElementById(containerId).innerHTML =
+    `<div class="empty">${esc(prefix)}: ${esc(msg)}</div>`;
+}
+
 function bindSearchInput(inputId, { getValue, setValue, resetPages, load, delay = 300 }) {
   const el = document.getElementById(inputId);
   const runLoad = () => {
@@ -226,27 +232,31 @@ function bindSearchInput(inputId, { getValue, setValue, resetPages, load, delay 
 }
 
 async function loadKorona() {
-  const data = await api(
-    `/api/korona/products?page=${state.koronaPage}&size=25${searchQuery(state.koronaSearch)}`
-  );
-  const rows = data.products.map((p) => [
-    esc(p.number),
-    `<span class="${p.deleted ? "deleted" : ""}">${esc(p.name)}</span>`,
-    esc(p.barcode),
-    esc(p.price ?? ""),
-    esc(p.revision ?? ""),
-    `<code>${esc(p.id)}</code>`,
-  ]);
-  const emptyMsg = state.koronaSearch.trim()
-    ? `No products found for "${esc(state.koronaSearch.trim())}". Try exact SKU/number (e.g. 1001, A4311) or barcode.`
-    : "No data yet";
-  document.getElementById("korona-table").innerHTML = rows.length
-    ? table(["Number", "Name", "Barcode", "Price", "Revision", "ID"], rows)
-    : `<div class="empty">${emptyMsg}</div>`;
-  pager("korona-pager", data.page, data.total, 25, (p) => {
-    state.koronaPage = p;
-    loadKorona();
-  });
+  try {
+    const data = await api(
+      `/api/korona/products?page=${state.koronaPage}&size=25${searchQuery(state.koronaSearch)}`
+    );
+    const rows = data.products.map((p) => [
+      esc(p.number),
+      `<span class="${p.deleted ? "deleted" : ""}">${esc(p.name)}</span>`,
+      esc(p.barcode),
+      esc(p.price ?? ""),
+      esc(p.revision ?? ""),
+      `<code>${esc(p.id)}</code>`,
+    ]);
+    const emptyMsg = state.koronaSearch.trim()
+      ? `No products found for "${esc(state.koronaSearch.trim())}". Try exact SKU/number, full product ID, or barcode.`
+      : "No data yet";
+    document.getElementById("korona-table").innerHTML = rows.length
+      ? table(["Number", "Name", "Barcode", "Price", "Revision", "ID"], rows)
+      : `<div class="empty">${emptyMsg}</div>`;
+    pager("korona-pager", data.page, data.total, 25, (p) => {
+      state.koronaPage = p;
+      loadKorona();
+    });
+  } catch (err) {
+    showTableError("korona-table", err, "Korona search failed");
+  }
 }
 
 async function loadMappings() {
@@ -310,43 +320,76 @@ async function loadOrders() {
 }
 
 async function loadReceipts() {
-  const data = await api(`/api/receipts?page=${state.receiptsPage}&limit=50${searchQuery(state.receiptsSearch)}`);
-  const hintEl = document.getElementById("receipts-hint");
-  hintEl.textContent = data.hint ?? "";
-  hintEl.hidden = !data.hint;
+  document.getElementById("korona-receipts-table").innerHTML =
+    '<div class="empty muted">Loading Korona receipts…</div>';
 
-  document.getElementById("receipts-table").innerHTML = table(
-    ["Receipt ID", "Processed at", ""],
-    data.rows.map((r) => [
-      `<code>${esc(r.receipt_id)}</code>`,
-      fmtTime(r.processed_at),
-      receiptDownloadLink(r.receipt_id),
-    ])
-  );
-  pager("receipts-pager", data.page, data.total, data.limit, (p) => {
-    state.receiptsPage = p;
-    loadReceipts();
-  });
+  const [processedResult, liveResult] = await Promise.allSettled([
+    api(`/api/receipts?page=${state.receiptsPage}&limit=50${searchQuery(state.receiptsSearch)}`),
+    api(
+      `/api/korona/receipts?page=${state.koronaReceiptsPage}${searchQuery(state.koronaReceiptsSearch)}`
+    ),
+  ]);
 
-  const live = await api(
-    `/api/korona/receipts?page=${state.koronaReceiptsPage}${searchQuery(state.koronaReceiptsSearch)}`
-  );
-  document.getElementById("korona-receipts-table").innerHTML = table(
-    ["Number", "ID", "Sale lines", "Revision", "Created", "Modified", ""],
-    live.receipts.map((r) => [
-      esc(r.number),
-      `<code>${esc(r.id)}</code>`,
-      esc(r.lineCount),
-      esc(r.revision ?? ""),
-      fmtTime(r.creationTime),
-      fmtTime(r.modificationTime),
-      receiptDownloadLink(r.id),
-    ])
-  );
-  pager("korona-receipts-pager", live.page, live.total, 100, (p) => {
-    state.koronaReceiptsPage = p;
-    loadReceipts();
-  });
+  if (processedResult.status === "fulfilled") {
+    try {
+      const data = processedResult.value;
+      const hintEl = document.getElementById("receipts-hint");
+      hintEl.textContent = data.hint ?? "";
+      hintEl.hidden = !data.hint;
+
+      const processedRows = (data.rows ?? []).map((r) => [
+        `<code>${esc(r.receipt_id)}</code>`,
+        fmtTime(r.processed_at),
+        receiptDownloadLink(r.receipt_id),
+      ]);
+      const processedSearch = state.receiptsSearch.trim();
+      const processedEmpty = processedSearch
+        ? `No processed receipts match "${esc(processedSearch)}". This search is for synced receipt IDs only — use Korona Receipts (live) below for product SKU/ID.`
+        : "No data yet";
+      document.getElementById("receipts-table").innerHTML = processedRows.length
+        ? table(["Receipt ID", "Processed at", ""], processedRows)
+        : `<div class="empty">${processedEmpty}</div>`;
+      pager("receipts-pager", data.page, data.total ?? 0, data.limit ?? 50, (p) => {
+        state.receiptsPage = p;
+        loadReceipts();
+      });
+    } catch (err) {
+      showTableError("receipts-table", err, "Processed receipt search failed");
+    }
+  } else {
+    showTableError("receipts-table", processedResult.reason, "Processed receipt search failed");
+  }
+
+  if (liveResult.status === "fulfilled") {
+    try {
+      const live = liveResult.value;
+      const receiptRows = (live.receipts ?? []).map((r) => [
+        esc(r.number),
+        `<code>${esc(r.id)}</code>`,
+        esc(r.lineCount),
+        esc(r.revision ?? ""),
+        fmtTime(r.creationTime),
+        fmtTime(r.modificationTime),
+        receiptDownloadLink(r.id),
+      ]);
+      const receiptEmpty = live.productMatch
+        ? `Product "${esc(live.productMatch.name)}" (${esc(live.productMatch.number)}) is in Korona but has not been sold on any receipt yet.`
+        : state.koronaReceiptsSearch.trim()
+          ? `No receipts found for "${esc(state.koronaReceiptsSearch.trim())}". Try receipt #, full receipt/product ID, or product SKU (e.g. 1432021).`
+          : "No data yet";
+      document.getElementById("korona-receipts-table").innerHTML = receiptRows.length
+        ? table(["Number", "ID", "Sale lines", "Revision", "Created", "Modified", ""], receiptRows)
+        : `<div class="empty">${receiptEmpty}</div>`;
+      pager("korona-receipts-pager", live.page ?? 1, live.total ?? 0, 100, (p) => {
+        state.koronaReceiptsPage = p;
+        loadReceipts();
+      });
+    } catch (err) {
+      showTableError("korona-receipts-table", err, "Receipt search failed");
+    }
+  } else {
+    showTableError("korona-receipts-table", liveResult.reason, "Receipt search failed");
+  }
 }
 
 function statusBadge(status, label) {
@@ -453,7 +496,7 @@ async function loadReports() {
 
     const stock = await api(`/api/reports/stock?${q}`);
 
-    // If search returns no results, try a direct ShipHero SKU lookup
+    // If still no results, try ShipHero SKU lookup as last resort
     if (stock.rows.length === 0 && state.reportsSearch.trim()) {
       const sku = state.reportsSearch.trim();
       document.getElementById("reports-stock-table").innerHTML =
@@ -473,11 +516,11 @@ async function loadReports() {
           );
         } else {
           document.getElementById("reports-stock-table").innerHTML =
-            `<div class="empty">SKU <strong>${esc(sku)}</strong> not found in sync database or ShipHero.</div>`;
+            `<div class="empty">No match in sync database, Korona live, or ShipHero for <strong>${esc(sku)}</strong>.</div>`;
         }
       } catch {
         document.getElementById("reports-stock-table").innerHTML =
-          `<div class="empty">SKU not found in sync database. It may not be linked to a Korona product.</div>`;
+          `<div class="empty">No match found for <strong>${esc(sku)}</strong>.</div>`;
       }
       pager("reports-pager", 1, 0, 25, () => {});
     } else {
@@ -498,6 +541,8 @@ async function loadReports() {
         loadReports();
       });
     }
+  } catch (err) {
+    showTableError("reports-stock-table", err, "Report load failed");
   } finally {
     loading.hidden = true;
   }

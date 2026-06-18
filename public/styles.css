@@ -493,6 +493,7 @@ code {
 .report-status-untracked { background: var(--warn-bg); color: var(--warn); }
 .report-status-no_rows { background: var(--warn-bg); color: var(--warn); }
 .report-status-missing_sh { background: var(--err-bg); color: var(--err); }
+.report-status-unmapped { background: var(--warn-bg); color: var(--warn); }
 .report-status-pending { background: var(--warn-bg); color: var(--warn); }
 .report-status-error { background: var(--err-bg); color: var(--err); }
 

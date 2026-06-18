@@ -1,7 +1,10 @@
 import { config } from "../config.js";
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
-import { receiptSaleLines } from "../utils/korona-receipt.js";
+import {
+  receiptLinesMatchProduct,
+  receiptSaleLines,
+} from "../utils/korona-receipt.js";
 import { formatDisplayTime } from "./format-time.js";
 import { queryProductMappings } from "../db.js";
 import type { KoronaCustomerOrder, KoronaProduct, KoronaReceipt, KoronaResultList } from "../types/korona.js";
@@ -111,6 +114,56 @@ export async function getDashboardStatus(): Promise<DashboardStatus> {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PARTIAL_UUID_RE = /^[0-9a-f-]{8,}$/i;
+
+function isFullUuid(term: string): boolean {
+  return UUID_RE.test(term);
+}
+
+function isPartialUuid(term: string): boolean {
+  return PARTIAL_UUID_RE.test(term) && term.includes("-");
+}
+
+/** Strip a leading dash when the user pasted the tail of a Korona UUID. */
+function normalizeSearchTerm(term: string): string {
+  const t = term.trim();
+  if (t.startsWith("-") && /^-[0-9a-f-]{8,}$/i.test(t)) {
+    return t.slice(1);
+  }
+  return t;
+}
+
+function productsFromList(products: KoronaProduct[]): KoronaResultList<KoronaProduct> {
+  return {
+    currentPage: 1,
+    pagesTotal: 1,
+    resultsTotal: products.length,
+    resultsOfPage: products.length,
+    results: products,
+  };
+}
+
+async function safeGetProducts(
+  korona: KoronaClient,
+  opts: Parameters<KoronaClient["getProducts"]>[0]
+): Promise<KoronaResultList<KoronaProduct> | undefined> {
+  try {
+    return await korona.getProducts(opts);
+  } catch {
+    return undefined;
+  }
+}
+
+async function safeGetReceipts(
+  korona: KoronaClient,
+  opts: Parameters<KoronaClient["getReceipts"]>[0]
+): Promise<KoronaResultList<KoronaReceipt> | undefined> {
+  try {
+    return await korona.getReceipts(opts);
+  } catch {
+    return undefined;
+  }
+}
 
 function singleResultList<T>(item: T): KoronaResultList<T> {
   return {
@@ -155,44 +208,145 @@ async function searchKoronaProductsFromMappings(
   return products;
 }
 
-async function searchKoronaProducts(
+export async function searchKoronaProducts(
   korona: KoronaClient,
   term: string,
   page: number,
   size: number
 ): Promise<KoronaResultList<KoronaProduct>> {
+  const normalized = normalizeSearchTerm(term);
   const base = { page, size };
 
-  let list = await korona.getProducts({ ...base, number: term });
-  if (hasResults(list)) return list;
-
-  list = await korona.getProducts({ ...base, productCodes: term });
-  if (hasResults(list)) return list;
-
-  list = await korona.getProducts({ ...base, name: term });
-  if (hasResults(list)) return list;
-
-  if (UUID_RE.test(term)) {
+  if (isFullUuid(normalized)) {
     try {
-      const product = await korona.getProduct(term);
+      const product = await korona.getProduct(normalized);
       return singleResultList(product);
     } catch {
-      /* not found */
+      /* fall through */
     }
   }
 
-  const mapped = await searchKoronaProductsFromMappings(korona, term, size);
-  if (mapped.length) {
-    return {
-      currentPage: 1,
-      pagesTotal: 1,
-      resultsTotal: mapped.length,
-      resultsOfPage: mapped.length,
-      results: mapped,
-    };
+  if (isPartialUuid(normalized)) {
+    const mapped = await searchKoronaProductsFromMappings(korona, normalized, size);
+    if (mapped.length) return productsFromList(mapped);
   }
 
+  let list = await safeGetProducts(korona, { ...base, number: normalized });
+  if (hasResults(list)) return list;
+
+  list = await safeGetProducts(korona, { ...base, productCodes: normalized });
+  if (hasResults(list)) return list;
+
+  list = await safeGetProducts(korona, { ...base, name: normalized });
+  if (hasResults(list)) return list;
+
+  const mapped = await searchKoronaProductsFromMappings(korona, normalized, size);
+  if (mapped.length) return productsFromList(mapped);
+
   return emptyResultList();
+}
+
+/** Resolve a search term to Korona product UUID(s), if any. */
+export async function resolveKoronaProductIds(
+  korona: KoronaClient,
+  term: string,
+  limit = 5
+): Promise<string[]> {
+  const list = await searchKoronaProducts(korona, term.trim(), 1, limit);
+  return (list.results ?? []).map((p) => p.id).filter(Boolean);
+}
+
+async function receiptMatchesProduct(
+  korona: KoronaClient,
+  receipt: KoronaReceipt,
+  productId: string,
+  productNumber?: string
+): Promise<boolean> {
+  const listLines = receiptSaleLines(receipt);
+  if (listLines.length) {
+    return receiptLinesMatchProduct(listLines, productId, productNumber);
+  }
+
+  try {
+    const full = await korona.getReceipt(receipt.id);
+    return receiptLinesMatchProduct(receiptSaleLines(full), productId, productNumber);
+  } catch {
+    return false;
+  }
+}
+
+/** Korona's `product` query param is ignored by the API — scan receipts and match sale lines locally. */
+const RECEIPT_SCAN_CONCURRENCY = 8;
+const PRODUCT_RECEIPT_SEARCH_TTL_MS = 5 * 60_000;
+const productReceiptSearchCache = new Map<
+  string,
+  { result: KoronaResultList<KoronaReceipt>; expiresAt: number }
+>();
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const chunk = items.slice(i, i + concurrency);
+    results.push(...(await Promise.all(chunk.map(fn))));
+  }
+  return results;
+}
+
+async function searchReceiptsByProductId(
+  korona: KoronaClient,
+  productId: string,
+  page: number,
+  size: number,
+  productNumber?: string
+): Promise<KoronaResultList<KoronaReceipt>> {
+  const cacheKey = `${productId}:${page}:${size}`;
+  const cached = productReceiptSearchCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.result;
+  }
+
+  const matched: KoronaReceipt[] = [];
+  let pagesTotal = 1;
+
+  for (let p = 1; p <= pagesTotal; p++) {
+    const batch = await safeGetReceipts(korona, { page: p, size: 100 });
+    if (!hasResults(batch)) break;
+    pagesTotal = batch.pagesTotal ?? p;
+
+    const receipts = batch.results ?? [];
+    const hits = await mapWithConcurrency(
+      receipts,
+      (receipt) => receiptMatchesProduct(korona, receipt, productId, productNumber),
+      RECEIPT_SCAN_CONCURRENCY
+    );
+    for (let i = 0; i < receipts.length; i++) {
+      if (hits[i]) matched.push(receipts[i]!);
+    }
+  }
+
+  const result = !matched.length
+    ? emptyResultList<KoronaReceipt>()
+    : (() => {
+        const start = (page - 1) * size;
+        const pageResults = matched.slice(start, start + size);
+        return {
+          currentPage: page,
+          pagesTotal: Math.max(1, Math.ceil(matched.length / size)),
+          resultsTotal: matched.length,
+          resultsOfPage: pageResults.length,
+          results: pageResults,
+        };
+      })();
+
+  productReceiptSearchCache.set(cacheKey, {
+    result,
+    expiresAt: Date.now() + PRODUCT_RECEIPT_SEARCH_TTL_MS,
+  });
+  return result;
 }
 
 async function searchKoronaReceipts(
@@ -201,16 +355,29 @@ async function searchKoronaReceipts(
   page: number,
   size: number
 ): Promise<KoronaResultList<KoronaReceipt>> {
-  let list = await korona.getReceipts({ page, size, number: term });
+  const normalized = normalizeSearchTerm(term);
+  let list = await safeGetReceipts(korona, { page, size, number: normalized });
   if (hasResults(list)) return list;
 
-  if (UUID_RE.test(term)) {
+  if (isFullUuid(normalized)) {
     try {
-      const receipt = await korona.getReceipt(term);
+      const receipt = await korona.getReceipt(normalized);
       return singleResultList(receipt);
     } catch {
-      /* not found */
+      /* not a receipt id — try as product id below */
     }
+  }
+
+  const productList = await searchKoronaProducts(korona, normalized, 1, 1);
+  const product = productList.results?.[0];
+  if (product?.id) {
+    return searchReceiptsByProductId(
+      korona,
+      product.id,
+      page,
+      size,
+      product.number ?? undefined
+    );
   }
 
   return emptyResultList();
@@ -301,15 +468,31 @@ export async function getKoronaOrdersLive(page = 1, search = "", size = 100) {
 
 export async function getKoronaReceiptsLive(page = 1, search = "", size = 100) {
   const korona = new KoronaClient();
-  const term = search.trim();
-  const list = term
-    ? await searchKoronaReceipts(korona, term, page, size)
-    : await korona.getReceipts({ page, size });
+  const term = normalizeSearchTerm(search);
+  const list =
+    (term
+      ? await searchKoronaReceipts(korona, term, page, size)
+      : await korona.getReceipts({ page, size })) ?? emptyResultList<KoronaReceipt>();
+
+  let productMatch: { id: string; number: string; name: string } | undefined;
+  if (term && (list.resultsTotal ?? 0) === 0) {
+    const products = await searchKoronaProducts(korona, term, 1, 1);
+    const hit = products.results?.[0];
+    if (hit) {
+      productMatch = {
+        id: hit.id,
+        number: hit.number ?? "",
+        name: hit.name ?? "",
+      };
+    }
+  }
+
   return {
     total: list.resultsTotal ?? 0,
     pages: list.pagesTotal ?? 1,
     page: list.currentPage ?? page,
     search: term || undefined,
+    productMatch,
     receipts: (list.results ?? []).map((r) => ({
       id: r.id,
       number: r.number ?? "",

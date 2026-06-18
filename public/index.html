@@ -66,7 +66,7 @@
         <div class="toolbar">
           <h2>Korona Products (live API)</h2>
           <div class="toolbar-controls">
-            <input id="korona-search" class="input search-input" placeholder="Search number, SKU, barcode, name, ID…" type="search" />
+            <input id="korona-search" class="input search-input" placeholder="Search number, SKU, barcode, full/partial product ID…" type="search" />
             <div class="pager" id="korona-pager"></div>
           </div>
         </div>
@@ -103,7 +103,7 @@
         <div class="toolbar">
           <h2>Processed Receipts (synced to ShipHero)</h2>
           <div class="toolbar-controls">
-            <input id="receipts-search" class="input search-input" placeholder="Search receipt ID…" type="search" />
+            <input id="receipts-search" class="input search-input" placeholder="Search synced receipt ID only…" type="search" />
             <a class="btn secondary" href="/api/export/receipts.csv" download>Export all receipts (CSV)</a>
           </div>
         </div>
@@ -113,7 +113,7 @@
         <div class="pager" id="receipts-pager"></div>
         <h2 class="section-gap">Korona Receipts (live)</h2>
         <div class="toolbar">
-          <input id="korona-receipts-search" class="input search-input" placeholder="Search receipt number or ID…" type="search" />
+          <input id="korona-receipts-search" class="input search-input" placeholder="Receipt #, full ID, or product SKU (e.g. 1432021)…" type="search" />
         </div>
         <div id="korona-receipts-table" class="table-wrap"></div>
         <div class="pager" id="korona-receipts-pager"></div>
@@ -156,13 +156,14 @@
         <div class="pager" id="reports-sales-pager"></div>
         <h2 class="section-gap">Stock by SKU (remaining on-hand)</h2>
         <div class="toolbar">
-          <input id="reports-search" class="input search-input" placeholder="Search SKU, name…" type="search" />
+          <input id="reports-search" class="input search-input" placeholder="Search SKU, name, or product ID…" type="search" />
           <select id="reports-filter" class="input">
             <option value="all">All statuses</option>
             <option value="synced">In sync</option>
             <option value="mismatch">Mismatch</option>
             <option value="untracked">Korona not tracked</option>
             <option value="no_rows">No Korona rows</option>
+            <option value="unmapped">Not mapped</option>
             <option value="missing_sh">Missing in ShipHero</option>
           </select>
         </div>
@@ -229,6 +230,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=15" type="module"></script>
+  <script src="/app.js?v=19" type="module"></script>
 </body>
 </html>
