@@ -198,14 +198,25 @@ export async function queryProductMappings(opts: {
 export async function queryOrderMappings(opts: {
   page: number;
   limit: number;
+  search?: string;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const from = (opts.page - 1) * opts.limit;
   const to = from + opts.limit - 1;
-  const { data, count, error } = await getSupabase()
+  const search = opts.search?.trim();
+
+  let query = getSupabase()
     .from("order_mappings")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(from, to);
+
+  if (search) {
+    query = query.or(
+      `korona_order_id.ilike.%${search}%,korona_order_type.ilike.%${search}%,shiphero_order_id.ilike.%${search}%,shiphero_order_number.ilike.%${search}%`
+    );
+  }
+
+  const { data, count, error } = await query;
   if (error) throw new Error(error.message);
   return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? 0 };
 }
@@ -213,14 +224,23 @@ export async function queryOrderMappings(opts: {
 export async function queryProcessedReceipts(opts: {
   page: number;
   limit: number;
+  search?: string;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const from = (opts.page - 1) * opts.limit;
   const to = from + opts.limit - 1;
-  const { data, count, error } = await getSupabase()
+  const search = opts.search?.trim();
+
+  let query = getSupabase()
     .from("processed_receipts")
     .select("*", { count: "exact" })
     .order("processed_at", { ascending: false })
     .range(from, to);
+
+  if (search) {
+    query = query.ilike("receipt_id", `%${search}%`);
+  }
+
+  const { data, count, error } = await query;
   if (error) throw new Error(error.message);
   return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? 0 };
 }
@@ -229,15 +249,20 @@ export async function querySyncLogs(opts: {
   page: number;
   limit: number;
   level?: string;
+  search?: string;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const from = (opts.page - 1) * opts.limit;
   const to = from + opts.limit - 1;
+  const search = opts.search?.trim();
   let query = getSupabase()
     .from("sync_log")
     .select("*", { count: "exact" })
     .order("id", { ascending: false })
     .range(from, to);
   if (opts.level) query = query.eq("level", opts.level);
+  if (search) {
+    query = query.or(`job.ilike.%${search}%,message.ilike.%${search}%,level.ilike.%${search}%`);
+  }
   const { data, count, error } = await query;
   if (error) throw new Error(error.message);
   return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? 0 };

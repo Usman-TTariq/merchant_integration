@@ -63,12 +63,22 @@ export class KoronaClient {
     }
   }
 
-  getProducts(opts?: { revision?: number; page?: number }): Promise<KoronaResultList<KoronaProduct>> {
+  getProducts(opts?: {
+    revision?: number;
+    page?: number;
+    size?: number;
+    number?: string;
+    name?: string;
+    productCodes?: string;
+  }): Promise<KoronaResultList<KoronaProduct>> {
     const query = this.buildQuery({
       page: opts?.page ?? 1,
-      size: config.sync.pageSize,
+      size: opts?.size ?? config.sync.pageSize,
       revision: opts?.revision,
       sort: "revision",
+      number: opts?.number,
+      name: opts?.name,
+      productCodes: opts?.productCodes,
     });
     return this.request(this.accountPath(`/products${query}`));
   }
@@ -84,12 +94,20 @@ export class KoronaClient {
     });
   }
 
-  getReceipts(opts?: { revision?: number; page?: number; minCreateTime?: string; maxCreateTime?: string }): Promise<KoronaResultList<KoronaReceipt>> {
+  getReceipts(opts?: {
+    revision?: number;
+    page?: number;
+    size?: number;
+    number?: string;
+    minCreateTime?: string;
+    maxCreateTime?: string;
+  }): Promise<KoronaResultList<KoronaReceipt>> {
     const query = this.buildQuery({
       page: opts?.page ?? 1,
-      size: config.sync.pageSize,
+      size: opts?.size ?? config.sync.pageSize,
       revision: opts?.revision,
       sort: "revision",
+      number: opts?.number,
       minCreateTime: opts?.minCreateTime,
       maxCreateTime: opts?.maxCreateTime,
     });
@@ -100,12 +118,18 @@ export class KoronaClient {
     return this.request(this.accountPath(`/receipts/${receiptId}`));
   }
 
-  getCustomerOrders(opts?: { revision?: number; page?: number }): Promise<KoronaResultList<KoronaCustomerOrder>> {
+  getCustomerOrders(opts?: {
+    revision?: number;
+    page?: number;
+    size?: number;
+    number?: string;
+  }): Promise<KoronaResultList<KoronaCustomerOrder>> {
     const query = this.buildQuery({
       page: opts?.page ?? 1,
-      size: config.sync.pageSize,
+      size: opts?.size ?? config.sync.pageSize,
       revision: opts?.revision,
       sort: "revision",
+      number: opts?.number,
     });
     return this.request(this.accountPath(`/customerOrders${query}`));
   }

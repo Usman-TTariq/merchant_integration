@@ -16,6 +16,12 @@ const state = {
   reportsSalesSearch: "",
   reportsFilter: "all",
   productSearch: "",
+  koronaSearch: "",
+  ordersSearch: "",
+  koronaOrdersSearch: "",
+  receiptsSearch: "",
+  koronaReceiptsSearch: "",
+  logsSearch: "",
   logLevel: "",
   displayTimezone: DEFAULT_TIMEZONE,
   // ShipHero tab
@@ -192,19 +198,51 @@ async function loadOverview() {
   );
 }
 
+function searchQuery(term) {
+  const q = term?.trim();
+  return q ? `&search=${encodeURIComponent(q)}` : "";
+}
+
+function bindSearchInput(inputId, { getValue, setValue, resetPages, load, delay = 300 }) {
+  const el = document.getElementById(inputId);
+  const runLoad = () => {
+    clearTimeout(window[`_${inputId}Timer`]);
+    window[`_${inputId}Timer`] = setTimeout(load, delay);
+  };
+  el.addEventListener("input", (e) => {
+    setValue(e.target.value);
+    resetPages();
+    runLoad();
+  });
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      setValue(e.target.value);
+      resetPages();
+      clearTimeout(window[`_${inputId}Timer`]);
+      load();
+    }
+  });
+  if (el && getValue()) el.value = getValue();
+}
+
 async function loadKorona() {
-  const data = await api(`/api/korona/products?page=${state.koronaPage}&size=25`);
-  document.getElementById("korona-table").innerHTML = table(
-    ["Number", "Name", "Barcode", "Price", "Revision", "ID"],
-    data.products.map((p) => [
-      esc(p.number),
-      `<span class="${p.deleted ? "deleted" : ""}">${esc(p.name)}</span>`,
-      esc(p.barcode),
-      esc(p.price ?? ""),
-      esc(p.revision ?? ""),
-      `<code>${esc(p.id)}</code>`,
-    ])
+  const data = await api(
+    `/api/korona/products?page=${state.koronaPage}&size=25${searchQuery(state.koronaSearch)}`
   );
+  const rows = data.products.map((p) => [
+    esc(p.number),
+    `<span class="${p.deleted ? "deleted" : ""}">${esc(p.name)}</span>`,
+    esc(p.barcode),
+    esc(p.price ?? ""),
+    esc(p.revision ?? ""),
+    `<code>${esc(p.id)}</code>`,
+  ]);
+  const emptyMsg = state.koronaSearch.trim()
+    ? `No products found for "${esc(state.koronaSearch.trim())}". Try exact SKU/number (e.g. 1001, A4311) or barcode.`
+    : "No data yet";
+  document.getElementById("korona-table").innerHTML = rows.length
+    ? table(["Number", "Name", "Barcode", "Price", "Revision", "ID"], rows)
+    : `<div class="empty">${emptyMsg}</div>`;
   pager("korona-pager", data.page, data.total, 25, (p) => {
     state.koronaPage = p;
     loadKorona();
@@ -231,7 +269,7 @@ async function loadMappings() {
 }
 
 async function loadOrders() {
-  const data = await api(`/api/orders?page=${state.ordersPage}&limit=50`);
+  const data = await api(`/api/orders?page=${state.ordersPage}&limit=50${searchQuery(state.ordersSearch)}`);
   const hintEl = document.getElementById("orders-hint");
   hintEl.textContent = data.hint ?? "";
   hintEl.hidden = !data.hint;
@@ -251,7 +289,9 @@ async function loadOrders() {
     loadOrders();
   });
 
-  const live = await api(`/api/korona/orders?page=${state.koronaOrdersPage}`);
+  const live = await api(
+    `/api/korona/orders?page=${state.koronaOrdersPage}${searchQuery(state.koronaOrdersSearch)}`
+  );
   document.getElementById("korona-orders-table").innerHTML = table(
     ["Number", "ID", "Lines", "Revision", "Created", "Deleted"],
     live.orders.map((o) => [
@@ -270,7 +310,7 @@ async function loadOrders() {
 }
 
 async function loadReceipts() {
-  const data = await api(`/api/receipts?page=${state.receiptsPage}&limit=50`);
+  const data = await api(`/api/receipts?page=${state.receiptsPage}&limit=50${searchQuery(state.receiptsSearch)}`);
   const hintEl = document.getElementById("receipts-hint");
   hintEl.textContent = data.hint ?? "";
   hintEl.hidden = !data.hint;
@@ -288,7 +328,9 @@ async function loadReceipts() {
     loadReceipts();
   });
 
-  const live = await api(`/api/korona/receipts?page=${state.koronaReceiptsPage}`);
+  const live = await api(
+    `/api/korona/receipts?page=${state.koronaReceiptsPage}${searchQuery(state.koronaReceiptsSearch)}`
+  );
   document.getElementById("korona-receipts-table").innerHTML = table(
     ["Number", "ID", "Sale lines", "Revision", "Created", "Modified", ""],
     live.receipts.map((r) => [
@@ -462,9 +504,9 @@ async function loadReports() {
 }
 
 async function loadLogs() {
-  const level = state.logLevel ? `&level=${state.logLevel}` : "";
+  const level = state.logLevel ? `&level=${encodeURIComponent(state.logLevel)}` : "";
   const [data, summary] = await Promise.all([
-    api(`/api/logs?page=${state.logsPage}&limit=100${level}`),
+    api(`/api/logs?page=${state.logsPage}&limit=100${level}${searchQuery(state.logsSearch)}`),
     api("/api/logs/summary"),
   ]);
 
@@ -707,6 +749,48 @@ document.getElementById("product-search").addEventListener("input", (e) => {
   state.mappingsPage = 1;
   clearTimeout(window._searchTimer);
   window._searchTimer = setTimeout(loadMappings, 300);
+});
+
+bindSearchInput("korona-search", {
+  getValue: () => state.koronaSearch,
+  setValue: (v) => { state.koronaSearch = v; },
+  resetPages: () => { state.koronaPage = 1; },
+  load: () => { if (state.tab === "korona") loadKorona(); },
+});
+
+bindSearchInput("orders-search", {
+  getValue: () => state.ordersSearch,
+  setValue: (v) => { state.ordersSearch = v; },
+  resetPages: () => { state.ordersPage = 1; },
+  load: () => { if (state.tab === "orders") loadOrders(); },
+});
+
+bindSearchInput("korona-orders-search", {
+  getValue: () => state.koronaOrdersSearch,
+  setValue: (v) => { state.koronaOrdersSearch = v; },
+  resetPages: () => { state.koronaOrdersPage = 1; },
+  load: () => { if (state.tab === "orders") loadOrders(); },
+});
+
+bindSearchInput("receipts-search", {
+  getValue: () => state.receiptsSearch,
+  setValue: (v) => { state.receiptsSearch = v; },
+  resetPages: () => { state.receiptsPage = 1; },
+  load: () => { if (state.tab === "receipts") loadReceipts(); },
+});
+
+bindSearchInput("korona-receipts-search", {
+  getValue: () => state.koronaReceiptsSearch,
+  setValue: (v) => { state.koronaReceiptsSearch = v; },
+  resetPages: () => { state.koronaReceiptsPage = 1; },
+  load: () => { if (state.tab === "receipts") loadReceipts(); },
+});
+
+bindSearchInput("logs-search", {
+  getValue: () => state.logsSearch,
+  setValue: (v) => { state.logsSearch = v; },
+  resetPages: () => { state.logsPage = 1; },
+  load: () => { if (state.tab === "logs") loadLogs(); },
 });
 
 document.getElementById("log-level").addEventListener("change", (e) => {

@@ -223,9 +223,31 @@ export async function queryProductMappings(opts: {
 export async function queryOrderMappings(opts: {
   page: number;
   limit: number;
+  search?: string;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const db = sqlite();
   const offset = (opts.page - 1) * opts.limit;
+  const search = opts.search?.trim();
+  if (search) {
+    const term = `%${search}%`;
+    const rows = db
+      .prepare(
+        `SELECT korona_order_id, korona_order_type, shiphero_order_id, shiphero_order_number, created_at
+         FROM order_mappings
+         WHERE korona_order_id LIKE ? OR korona_order_type LIKE ? OR shiphero_order_id LIKE ? OR shiphero_order_number LIKE ?
+         ORDER BY created_at DESC LIMIT ? OFFSET ?`
+      )
+      .all(term, term, term, term, opts.limit, offset) as Record<string, unknown>[];
+    const total = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM order_mappings
+           WHERE korona_order_id LIKE ? OR korona_order_type LIKE ? OR shiphero_order_id LIKE ? OR shiphero_order_number LIKE ?`
+        )
+        .get(term, term, term, term) as { c: number }
+    ).c;
+    return { rows, total };
+  }
   const rows = db
     .prepare(
       `SELECT korona_order_id, korona_order_type, shiphero_order_id, shiphero_order_number, created_at
@@ -239,9 +261,23 @@ export async function queryOrderMappings(opts: {
 export async function queryProcessedReceipts(opts: {
   page: number;
   limit: number;
+  search?: string;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const db = sqlite();
   const offset = (opts.page - 1) * opts.limit;
+  const search = opts.search?.trim();
+  if (search) {
+    const term = `%${search}%`;
+    const rows = db
+      .prepare(
+        "SELECT receipt_id, processed_at FROM processed_receipts WHERE receipt_id LIKE ? ORDER BY processed_at DESC LIMIT ? OFFSET ?"
+      )
+      .all(term, opts.limit, offset) as Record<string, unknown>[];
+    const total = (
+      db.prepare("SELECT COUNT(*) AS c FROM processed_receipts WHERE receipt_id LIKE ?").get(term) as { c: number }
+    ).c;
+    return { rows, total };
+  }
   const rows = db
     .prepare(
       "SELECT receipt_id, processed_at FROM processed_receipts ORDER BY processed_at DESC LIMIT ? OFFSET ?"
@@ -255,21 +291,60 @@ export async function querySyncLogs(opts: {
   page: number;
   limit: number;
   level?: string;
+  search?: string;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const db = sqlite();
   const offset = (opts.page - 1) * opts.limit;
-  if (opts.level) {
+  const search = opts.search?.trim();
+  const level = opts.level?.trim();
+
+  if (level && search) {
+    const term = `%${search}%`;
+    const rows = db
+      .prepare(
+        `SELECT id, job, level, message, created_at FROM sync_log
+         WHERE level = ? AND (job LIKE ? OR message LIKE ?)
+         ORDER BY id DESC LIMIT ? OFFSET ?`
+      )
+      .all(level, term, term, opts.limit, offset) as Record<string, unknown>[];
+    const total = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM sync_log WHERE level = ? AND (job LIKE ? OR message LIKE ?)")
+        .get(level, term, term) as { c: number }
+    ).c;
+    return { rows, total };
+  }
+
+  if (level) {
     const rows = db
       .prepare(
         `SELECT id, job, level, message, created_at FROM sync_log
          WHERE level = ? ORDER BY id DESC LIMIT ? OFFSET ?`
       )
-      .all(opts.level, opts.limit, offset) as Record<string, unknown>[];
+      .all(level, opts.limit, offset) as Record<string, unknown>[];
     const total = (
-      db.prepare("SELECT COUNT(*) AS c FROM sync_log WHERE level = ?").get(opts.level) as { c: number }
+      db.prepare("SELECT COUNT(*) AS c FROM sync_log WHERE level = ?").get(level) as { c: number }
     ).c;
     return { rows, total };
   }
+
+  if (search) {
+    const term = `%${search}%`;
+    const rows = db
+      .prepare(
+        `SELECT id, job, level, message, created_at FROM sync_log
+         WHERE job LIKE ? OR message LIKE ? OR level LIKE ?
+         ORDER BY id DESC LIMIT ? OFFSET ?`
+      )
+      .all(term, term, term, opts.limit, offset) as Record<string, unknown>[];
+    const total = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM sync_log WHERE job LIKE ? OR message LIKE ? OR level LIKE ?")
+        .get(term, term, term) as { c: number }
+    ).c;
+    return { rows, total };
+  }
+
   const rows = db
     .prepare(
       "SELECT id, job, level, message, created_at FROM sync_log ORDER BY id DESC LIMIT ? OFFSET ?"

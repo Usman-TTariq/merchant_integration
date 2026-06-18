@@ -274,23 +274,35 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     }
 
     if (req.method === "GET" && url.pathname === "/api/orders") {
-      return sendJson(res, 200, await getOrdersWithMeta(Number(q.page ?? 1), Number(q.limit ?? 50)));
+      return sendJson(
+        res,
+        200,
+        await getOrdersWithMeta(Number(q.page ?? 1), Number(q.limit ?? 50), q.search ?? "")
+      );
     }
 
     if (req.method === "GET" && url.pathname === "/api/korona/orders") {
-      return sendJson(res, 200, await getKoronaOrdersLive(Number(q.page ?? 1)));
+      return sendJson(
+        res,
+        200,
+        await getKoronaOrdersLive(Number(q.page ?? 1), q.search ?? "", Number(q.limit ?? 100))
+      );
     }
 
     if (req.method === "GET" && url.pathname === "/api/receipts") {
       return sendJson(
         res,
         200,
-        await getReceiptsWithMeta(Number(q.page ?? 1), Number(q.limit ?? 50))
+        await getReceiptsWithMeta(Number(q.page ?? 1), Number(q.limit ?? 50), q.search ?? "")
       );
     }
 
     if (req.method === "GET" && url.pathname === "/api/korona/receipts") {
-      return sendJson(res, 200, await getKoronaReceiptsLive(Number(q.page ?? 1)));
+      return sendJson(
+        res,
+        200,
+        await getKoronaReceiptsLive(Number(q.page ?? 1), q.search ?? "", Number(q.limit ?? 100))
+      );
     }
 
     const receiptDownload = url.pathname.match(/^\/api\/korona\/receipts\/([^/]+)\/download$/);
@@ -323,7 +335,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       return sendJson(
         res,
         200,
-        await getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "")
+        await getLogs(Number(q.page ?? 1), Number(q.limit ?? 100), q.level ?? "", q.search ?? "")
       );
     }
 
@@ -441,7 +453,14 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         });
 
         // client-side filter (search + status)
-        if (search) orders = orders.filter((o) => o.order_number?.toLowerCase().includes(search) || o.partner_order_id?.toLowerCase().includes(search));
+        if (search) {
+          orders = orders.filter(
+            (o) =>
+              o.order_number?.toLowerCase().includes(search) ||
+              o.partner_order_id?.toLowerCase().includes(search) ||
+              o.line_items?.edges?.some((e) => e.node.sku?.toLowerCase().includes(search))
+          );
+        }
         if (statusFilter) orders = orders.filter((o) => (o.fulfillment_status ?? "").toLowerCase() === statusFilter);
 
         return sendJson(res, 200, { orders, pageInfo: conn.pageInfo });
@@ -594,7 +613,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       return sendJson(
         res,
         200,
-        await getKoronaProductsLive(Number(q.page ?? 1))
+        await getKoronaProductsLive(Number(q.page ?? 1), q.search ?? "", Number(q.size ?? 25))
       );
     }
 

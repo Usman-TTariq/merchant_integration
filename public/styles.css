@@ -298,6 +298,20 @@ body {
   margin-bottom: 12px;
 }
 
+.toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.search-input {
+  min-width: 240px;
+  max-width: 360px;
+  flex: 1 1 240px;
+}
+
 .input {
   background: var(--surface);
   border: 1px solid var(--border-strong);

@@ -45,8 +45,8 @@ export async function getProducts(page = 1, limit = 50, search = "") {
   };
 }
 
-export function getOrders(page = 1, limit = 50) {
-  return queryOrderMappings({ page, limit }).then(({ rows, total }: { rows: Record<string, unknown>[]; total: number }) => ({
+export function getOrders(page = 1, limit = 50, search = "") {
+  return queryOrderMappings({ page, limit, search }).then(({ rows, total }: { rows: Record<string, unknown>[]; total: number }) => ({
     rows: formatRowTimes(rows, ["created_at"]),
     total,
     page,
@@ -54,8 +54,8 @@ export function getOrders(page = 1, limit = 50) {
   }));
 }
 
-export async function getOrdersWithMeta(page = 1, limit = 50) {
-  const result = await getOrders(page, limit);
+export async function getOrdersWithMeta(page = 1, limit = 50, search = "") {
+  const result = await getOrders(page, limit, search);
   const korona = new KoronaClient();
   let koronaTotal = 0;
   let receiptTotal = 0;
@@ -96,8 +96,8 @@ export async function getOrdersWithMeta(page = 1, limit = 50) {
   };
 }
 
-export async function getReceipts(page = 1, limit = 50) {
-  const { rows, total } = await queryProcessedReceipts({ page, limit });
+export async function getReceipts(page = 1, limit = 50, search = "") {
+  const { rows, total } = await queryProcessedReceipts({ page, limit, search });
   return {
     rows: formatRowTimes(rows as Record<string, unknown>[], ["processed_at"]),
     total,
@@ -106,8 +106,8 @@ export async function getReceipts(page = 1, limit = 50) {
   };
 }
 
-export async function getReceiptsWithMeta(page = 1, limit = 50) {
-  const result = await getReceipts(page, limit);
+export async function getReceiptsWithMeta(page = 1, limit = 50, search = "") {
+  const result = await getReceipts(page, limit, search);
   let koronaTotal = 0;
   try {
     const live = await getKoronaReceiptsLive(1);
@@ -135,8 +135,8 @@ export async function getReceiptsWithMeta(page = 1, limit = 50) {
   };
 }
 
-export async function getLogs(page = 1, limit = 100, level = "") {
-  const { rows, total } = await querySyncLogs({ page, limit, level: level || undefined });
+export async function getLogs(page = 1, limit = 100, level = "", search = "") {
+  const { rows, total } = await querySyncLogs({ page, limit, level: level || undefined, search: search || undefined });
   return {
     rows: formatRowTimes(rows as Record<string, unknown>[], ["created_at"]),
     total,
