@@ -4,6 +4,7 @@ import { initDatabase, logSync } from "./db.js";
 import { syncInventory } from "./sync/inventory.js";
 import { syncOrders } from "./sync/orders.js";
 import { syncProducts } from "./sync/products.js";
+import { syncStock } from "./sync/stock.js";
 
 function wrap(job: string, fn: () => Promise<unknown>): () => void {
   return () => {
@@ -20,7 +21,9 @@ console.log(`  database:  ${config.database.provider}`);
 console.log(`  products:  ${config.cron.products}`);
 console.log(`  inventory: ${config.cron.inventory}`);
 console.log(`  orders:    ${config.cron.orders}`);
+console.log(`  stock:     ${config.cron.stock}`);
 
 cron.schedule(config.cron.products, wrap("products", syncProducts));
 cron.schedule(config.cron.inventory, wrap("inventory", syncInventory));
 cron.schedule(config.cron.orders, wrap("orders", syncOrders));
+cron.schedule(config.cron.stock, wrap("stock", syncStock));

@@ -91,9 +91,10 @@
         <p id="orders-hint" class="hint"></p>
         <div id="orders-table" class="table-wrap"></div>
         <div class="pager" id="orders-pager"></div>
-        <h2 class="section-gap">Korona Customer Orders (live)</h2>
+        <h2 class="section-gap">Korona Receipts (live)</h2>
+        <p class="hint">POS register sales from Korona. These sync to ShipHero via <strong>Sync Orders</strong> (type <code>receipt</code>). Studio customer orders are listed separately when present.</p>
         <div class="toolbar">
-          <input id="korona-orders-search" class="input search-input" placeholder="Search order number or ID…" type="search" />
+          <input id="korona-orders-search" class="input search-input" placeholder="Receipt #, full ID, or product SKU…" type="search" />
         </div>
         <div id="korona-orders-table" class="table-wrap"></div>
         <div class="pager" id="korona-orders-pager"></div>
@@ -191,6 +192,7 @@
           </div>
         </div>
         <p id="sh-orders-hint" class="sh-status-msg"></p>
+        <p class="hint">Pending orders: use <strong>Print Label</strong> for genericlabel (requires warehouse address in ShipHero).</p>
         <div id="sh-orders-table" class="table-wrap sh-table"></div>
         <div class="pager" id="sh-orders-pager"></div>
 

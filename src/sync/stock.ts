@@ -9,7 +9,7 @@ import { receiptSaleLines } from "../utils/korona-receipt.js";
 
 const STOCK_PAGE_CURSOR = "stock_sync_page";
 
-export type StockSyncResult = "updated" | "skipped" | "untracked" | "missing";
+export type StockSyncResult = "updated" | "skipped" | "untracked" | "missing" | "in_sync" | "slotting";
 
 export type SyncProductStockOptions = {
   /** When false, routine batch sync won't log per-SKU warnings (avoids log spam). */
@@ -61,9 +61,24 @@ export async function syncProductStock(
   }
 
   const current = shiphero.getWarehouseOnHand(existing);
-  if (current === target) return "skipped";
+  if (current === target) return "in_sync";
 
-  await shiphero.inventoryReplace(sku, target, reason);
+  try {
+    await shiphero.inventoryReplace(sku, target, reason);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes("dynamic slotting")) {
+      if (logWarnings) {
+        await logSync(
+          job,
+          "warn",
+          `SKU ${sku}: inventory_replace blocked (ShipHero dynamic slotting account required) — contact ShipHero support`
+        );
+      }
+      return "slotting";
+    }
+    throw err;
+  }
   await logSync(job, "info", `Stock sync ${sku}: ${current} → ${target} (${reason})`);
   return "updated";
 }
@@ -122,9 +137,11 @@ export async function syncStock(): Promise<{ updated: number; skipped: number; p
 
   let updated = 0;
   let skipped = 0;
+  let inSync = 0;
   let untracked = 0;
   let noRows = 0;
   let missing = 0;
+  let slotting = 0;
 
   for (const row of rows) {
     const koronaProductId = String(row.korona_product_id ?? "");
@@ -145,8 +162,10 @@ export async function syncStock(): Promise<{ updated: number; skipped: number; p
         { logWarnings: false }
       );
       if (result === "updated") updated++;
+      else if (result === "in_sync") inSync++;
       else if (result === "untracked") untracked++;
       else if (result === "missing") missing++;
+      else if (result === "slotting") slotting++;
       else if (result === "skipped") noRows++;
       else skipped++;
     } catch (err) {
@@ -162,18 +181,18 @@ export async function syncStock(): Promise<{ updated: number; skipped: number; p
   const nextPage = rows.length === 0 || page >= pages ? 1 : page + 1;
   await setCursor(STOCK_PAGE_CURSOR, String(nextPage));
 
-  if (untracked || noRows || missing) {
+  if (untracked || noRows || missing || slotting) {
     await logSync(
       "stock",
       "warn",
-      `Batch issues: untracked=${untracked} no_rows=${noRows} missing_shiphero=${missing} page=${page}/${pages}`
+      `Batch issues: untracked=${untracked} no_rows=${noRows} missing_shiphero=${missing} slotting=${slotting} page=${page}/${pages}`
     );
   }
 
   await logSync(
     "stock",
     "info",
-    `Done: updated=${updated} skipped=${skipped + noRows + untracked + missing} page=${page}/${pages} next=${nextPage}`
+    `Done: updated=${updated} in_sync=${inSync} no_rows=${noRows} untracked=${untracked} missing_shiphero=${missing} slotting=${slotting} errors=${skipped} page=${page}/${pages} next=${nextPage}`
   );
   return { updated, skipped, page, pages };
 }

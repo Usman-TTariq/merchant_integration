@@ -108,10 +108,21 @@ export const config = {
     products: optional("CRON_PRODUCTS") ?? "0 */4 * * *",
     inventory: optional("CRON_INVENTORY") ?? "*/15 * * * *",
     orders: optional("CRON_ORDERS") ?? "*/10 * * * *",
+    /** Matches Vercel /api/cron/stock (150 SKUs per run). */
+    stock: optional("CRON_STOCK") ?? "*/15 * * * *",
   },
   dashboard: {
     /** IANA timezone for UI timestamps (default: US Pacific). */
     displayTimezone: optional("DISPLAY_TIMEZONE") ?? "America/Los_Angeles",
+  },
+  labelPrint: {
+    carrier: optional("LABEL_PRINT_CARRIER") ?? "genericlabel",
+    method: optional("LABEL_PRINT_METHOD") ?? "genericlabel",
+    weight: Number(optional("LABEL_PRINT_WEIGHT") ?? "0.0625"),
+    height: Number(optional("LABEL_PRINT_HEIGHT") ?? "1"),
+    width: Number(optional("LABEL_PRINT_WIDTH") ?? "1"),
+    length: Number(optional("LABEL_PRINT_LENGTH") ?? "1"),
+    printInvoice: optional("LABEL_PRINT_INVOICE") === "true",
   },
 } as const;
 

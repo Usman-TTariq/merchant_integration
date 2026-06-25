@@ -13,10 +13,61 @@ export interface ShipHeroProduct {
 }
 
 export interface ShipHeroOrderLine {
+  id?: string;
   sku: string;
   quantity: number;
   quantity_shipped?: number;
+  quantity_pending_fulfillment?: number;
   fulfillment_status?: string;
+}
+
+export interface PrintLabelPackageLineInput {
+  line_item_id: string;
+  quantity: number;
+}
+
+export interface PrintLabelPackageDimensions {
+  weight: number;
+  height: number;
+  width: number;
+  length: number;
+}
+
+export interface PrintLabelPackageInput {
+  dimensions: PrintLabelPackageDimensions;
+  line_items: PrintLabelPackageLineInput[];
+}
+
+export interface PrintLabelInput {
+  order_id: string;
+  shipping_carrier: string;
+  shipping_method: string;
+  print_invoice?: boolean;
+  packages: PrintLabelPackageInput[];
+}
+
+export interface ShippingLabelFileLocations {
+  pdf_location?: string | null;
+  paper_pdf_location?: string | null;
+  thermal_pdf_location?: string | null;
+  image_location?: string | null;
+}
+
+export interface ShippingLabelResult {
+  id?: string;
+  tracking_number?: string | null;
+  tracking_url?: string | null;
+  order_number?: string | null;
+  carrier?: string | null;
+  shipping_method?: string | null;
+  status?: string | null;
+  label?: ShippingLabelFileLocations | null;
+}
+
+export interface LabelPrintResponse {
+  request_id?: string;
+  complexity?: number;
+  labels?: ShippingLabelResult[] | null;
 }
 
 export interface ShipHeroOrder {

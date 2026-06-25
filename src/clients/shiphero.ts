@@ -1,5 +1,11 @@
 import { config, requireShipheroWarehouseId } from "../config.js";
-import type { GraphQLResponse, ShipHeroOrder, ShipHeroProduct } from "../types/shiphero.js";
+import type {
+  GraphQLResponse,
+  LabelPrintResponse,
+  PrintLabelInput,
+  ShipHeroOrder,
+  ShipHeroProduct,
+} from "../types/shiphero.js";
 
 interface TokenResponse {
   access_token: string;
@@ -275,6 +281,145 @@ export class ShipHeroClient {
       }
     );
     return data.order_create.order;
+  }
+
+  async findOrder(input: {
+    shopName: string;
+    orderNumber: string;
+    partnerOrderId?: string;
+  }): Promise<{ id: string; order_number: string } | null> {
+    type FindOrderResponse = {
+      orders: {
+        data: {
+          edges: Array<{ node: { id: string; order_number: string; partner_order_id?: string } }>;
+        };
+      };
+    };
+
+    const data = await this.graphql<FindOrderResponse>(
+      `query FindOrder($shop_name: String, $order_number: String, $partner_order_id: String) {
+        orders(shop_name: $shop_name, order_number: $order_number, partner_order_id: $partner_order_id) {
+          data(first: 1) {
+            edges {
+              node {
+                id
+                order_number
+                partner_order_id
+              }
+            }
+          }
+        }
+      }`,
+      {
+        shop_name: input.shopName,
+        order_number: input.orderNumber,
+        partner_order_id: input.partnerOrderId ?? null,
+      }
+    );
+
+    const node = data.orders.data.edges[0]?.node;
+    if (node) return { id: node.id, order_number: node.order_number };
+
+    if (input.partnerOrderId) {
+      const fallback = await this.graphql<FindOrderResponse>(
+        `query FindOrderByNumber($shop_name: String, $order_number: String) {
+          orders(shop_name: $shop_name, order_number: $order_number) {
+            data(first: 1) {
+              edges {
+                node { id order_number }
+              }
+            }
+          }
+        }`,
+        { shop_name: input.shopName, order_number: input.orderNumber }
+      );
+      const fallbackNode = fallback.orders.data.edges[0]?.node;
+      return fallbackNode ? { id: fallbackNode.id, order_number: fallbackNode.order_number } : null;
+    }
+
+    return null;
+  }
+
+  async getOrderById(orderId: string): Promise<ShipHeroOrder | null> {
+    try {
+      const data = await this.graphql<{
+        order: { data: ShipHeroOrder | null };
+      }>(
+        `query OrderById($id: String!) {
+          order(id: $id) {
+            request_id
+            data {
+              id
+              order_number
+              partner_order_id
+              fulfillment_status
+              updated_at
+              shipping_address {
+                first_name
+                last_name
+                city
+                state
+                country
+              }
+              line_items(first: 50) {
+                edges {
+                  node {
+                    id
+                    sku
+                    quantity
+                    quantity_shipped
+                    quantity_pending_fulfillment
+                    fulfillment_status
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { id: orderId }
+      );
+      return data.order.data;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        msg.includes("not found") ||
+        msg.includes("Not Found") ||
+        msg.includes("Invalid id")
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async labelPrint(input: PrintLabelInput): Promise<LabelPrintResponse> {
+    const data = await this.graphql<{
+      label_print: LabelPrintResponse;
+    }>(
+      `mutation LabelPrint($data: PrintLabelInput!) {
+        label_print(data: $data) {
+          request_id
+          complexity
+          labels {
+            id
+            tracking_number
+            tracking_url
+            order_number
+            carrier
+            shipping_method
+            status
+            label {
+              pdf_location
+              paper_pdf_location
+              thermal_pdf_location
+              image_location
+            }
+          }
+        }
+      }`,
+      { data: input }
+    );
+    return data.label_print;
   }
 
   async getFulfilledOrders(updatedFrom?: string): Promise<ShipHeroOrder[]> {

@@ -3,13 +3,13 @@ import { ShipHeroClient } from "../clients/shiphero.js";
 import {
   findShipheroSku,
   getCursor,
-  insertOrderMapping,
   isOrderMapped,
   isReceiptProcessed,
   logSync,
   markReceiptProcessed,
   setCursor,
 } from "../db.js";
+import { createOrLinkShipheroOrder } from "../utils/shiphero-order-link.js";
 import { syncStockForReceipt } from "./stock.js";
 import { receiptHasSaleLines, receiptSaleLines } from "../utils/korona-receipt.js";
 import { sanitizeSku } from "../utils/sku.js";
@@ -183,7 +183,7 @@ async function deductReceiptInventoryIfNeeded(
   await logSync("orders", "info", `Receipt ${receiptNumber}: stock sync updates=${adjustments}`);
 }
 
-async function syncCustomerOrders(): Promise<{ created: number; skipped: number }> {
+async function syncCustomerOrders(): Promise<{ created: number; linked: number; skipped: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
 
@@ -191,6 +191,7 @@ async function syncCustomerOrders(): Promise<{ created: number; skipped: number 
   const revisionNum = revision ? Number(revision) : undefined;
 
   let created = 0;
+  let linked = 0;
   let skipped = 0;
   let maxRevision = revisionNum ?? 0;
 
@@ -240,23 +241,24 @@ async function syncCustomerOrders(): Promise<{ created: number; skipped: number 
       const partnerOrderId = `korona-${full.id}`;
 
       try {
-        const createdOrder = await shiphero.createOrder({
-          orderNumber,
-          partnerOrderId,
-          shopName: "Korona",
-          lineItems,
-          shippingAddress: shippingFromOrder(full),
-        });
-
-        await insertOrderMapping({
-          koronaOrderId: full.id,
-          koronaOrderType: "customerOrder",
-          shipheroOrderId: createdOrder.id,
-          shipheroOrderNumber: createdOrder.order_number,
-        });
+        const result = await createOrLinkShipheroOrder(
+          shiphero,
+          {
+            orderNumber,
+            partnerOrderId,
+            shopName: "Korona",
+            lineItems,
+            shippingAddress: shippingFromOrder(full),
+          },
+          {
+            koronaOrderId: full.id,
+            koronaOrderType: "customerOrder",
+            logLabel: `Korona ${orderNumber}`,
+          }
+        );
+        if (result === "created") created++;
+        else linked++;
         bumpRevision();
-        created++;
-        await logSync("orders", "info", `Created ShipHero order ${createdOrder.order_number} from Korona ${orderNumber}`);
       } catch (err) {
         skipped++;
         await logSync("orders", "error", `Order ${orderNumber}: ${err instanceof Error ? err.message : String(err)}`);
@@ -268,10 +270,10 @@ async function syncCustomerOrders(): Promise<{ created: number; skipped: number 
     await setCursor(CUSTOMER_ORDERS_CURSOR, String(maxRevision));
   }
 
-  return { created, skipped };
+  return { created, linked, skipped };
 }
 
-async function syncReceiptOrders(): Promise<{ created: number; skipped: number }> {
+async function syncReceiptOrders(): Promise<{ created: number; linked: number; skipped: number }> {
   const korona = new KoronaClient();
   const shiphero = new ShipHeroClient();
 
@@ -279,6 +281,7 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
   const revisionNum = revision ? Number(revision) : undefined;
 
   let created = 0;
+  let linked = 0;
   let skipped = 0;
   let maxRevision = revisionNum ?? 0;
 
@@ -344,29 +347,26 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
       const partnerOrderId = `korona-r-${receiptNumber}`.slice(0, 45);
 
       try {
-        const createdOrder = await shiphero.createOrder({
-          orderNumber,
-          partnerOrderId,
-          shopName: "Korona POS",
-          lineItems,
-          shippingAddress: shippingFromReceipt(full),
-          fulfillmentStatus: "fulfilled",
-        });
-
-        await insertOrderMapping({
-          koronaOrderId: full.id,
-          koronaOrderType: "receipt",
-          shipheroOrderId: createdOrder.id,
-          shipheroOrderNumber: createdOrder.order_number,
-        });
+        const result = await createOrLinkShipheroOrder(
+          shiphero,
+          {
+            orderNumber,
+            partnerOrderId,
+            shopName: "Korona POS",
+            lineItems,
+            shippingAddress: shippingFromReceipt(full),
+            fulfillmentStatus: "fulfilled",
+          },
+          {
+            koronaOrderId: full.id,
+            koronaOrderType: "receipt",
+            logLabel: `Korona receipt ${receiptNumber}`,
+          }
+        );
+        if (result === "created") created++;
+        else linked++;
         await deductReceiptInventoryIfNeeded(korona, shiphero, full);
         bumpRevision();
-        created++;
-        await logSync(
-          "orders",
-          "info",
-          `Created ShipHero order ${createdOrder.order_number} from Korona receipt ${receiptNumber}`
-        );
       } catch (err) {
         skipped++;
         await logSync(
@@ -382,19 +382,20 @@ async function syncReceiptOrders(): Promise<{ created: number; skipped: number }
     await setCursor(RECEIPT_ORDERS_CURSOR, String(maxRevision));
   }
 
-  return { created, skipped };
+  return { created, linked, skipped };
 }
 
-export async function syncOrders(): Promise<{ created: number; skipped: number }> {
+export async function syncOrders(): Promise<{ created: number; linked: number; skipped: number }> {
   const customer = await syncCustomerOrders();
   const receipts = await syncReceiptOrders();
   const created = customer.created + receipts.created;
+  const linked = customer.linked + receipts.linked;
   const skipped = customer.skipped + receipts.skipped;
 
   await logSync(
     "orders",
     "info",
-    `Done: created=${created} skipped=${skipped} (customer=${customer.created}/${customer.skipped}, receipts=${receipts.created}/${receipts.skipped})`
+    `Done: created=${created} linked=${linked} skipped=${skipped} (customer=${customer.created}/${customer.linked}/${customer.skipped}, receipts=${receipts.created}/${receipts.linked}/${receipts.skipped})`
   );
-  return { created, skipped };
+  return { created, linked, skipped };
 }

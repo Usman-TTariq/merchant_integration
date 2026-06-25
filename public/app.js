@@ -279,6 +279,11 @@ async function loadMappings() {
 }
 
 async function loadOrders() {
+  const ordersTable = document.getElementById("orders-table");
+  const koronaOrdersTable = document.getElementById("korona-orders-table");
+  ordersTable.innerHTML = '<div class="empty muted">Loading order mappings…</div>';
+  koronaOrdersTable.innerHTML = '<div class="empty muted">Loading Korona receipts…</div>';
+
   const data = await api(`/api/orders?page=${state.ordersPage}&limit=50${searchQuery(state.ordersSearch)}`);
   const hintEl = document.getElementById("orders-hint");
   hintEl.textContent = data.hint ?? "";
@@ -300,20 +305,26 @@ async function loadOrders() {
   });
 
   const live = await api(
-    `/api/korona/orders?page=${state.koronaOrdersPage}${searchQuery(state.koronaOrdersSearch)}`
+    `/api/korona/receipts?page=${state.koronaOrdersPage}${searchQuery(state.koronaOrdersSearch)}`
   );
-  document.getElementById("korona-orders-table").innerHTML = table(
-    ["Number", "ID", "Lines", "Revision", "Created", "Deleted"],
-    live.orders.map((o) => [
-      esc(o.number),
-      `<code>${esc(o.id)}</code>`,
-      esc(o.lineCount),
-      esc(o.revision ?? ""),
-      fmtTime(o.creationTime),
-      o.deleted ? "yes" : "no",
-    ])
-  );
-  pager("korona-orders-pager", live.page, live.total, 100, (p) => {
+  const receiptRows = (live.receipts ?? []).map((r) => [
+    esc(r.number),
+    `<code>${esc(r.id)}</code>`,
+    esc(r.lineCount),
+    esc(r.revision ?? ""),
+    fmtTime(r.creationTime),
+    fmtTime(r.modificationTime),
+  ]);
+  const receiptSearch = state.koronaOrdersSearch.trim();
+  const receiptEmpty = live.productMatch
+    ? `Product "${esc(live.productMatch.name)}" (${esc(live.productMatch.number)}) is in Korona but has not been sold on any receipt yet.`
+    : receiptSearch
+      ? `No receipts found for "${esc(receiptSearch)}". Try receipt #, full receipt/product ID, or product SKU.`
+      : "No POS receipts in Korona yet.";
+  document.getElementById("korona-orders-table").innerHTML = receiptRows.length
+    ? table(["Number", "ID", "Sale lines", "Revision", "Created", "Modified"], receiptRows)
+    : `<div class="empty">${receiptEmpty}</div>`;
+  pager("korona-orders-pager", live.page ?? 1, live.total ?? 0, 100, (p) => {
     state.koronaOrdersPage = p;
     loadOrders();
   });
@@ -621,6 +632,49 @@ function shStatusBadge(status) {
   return `<span class="report-status ${cls}">${esc(status)}</span>`;
 }
 
+function canPrintShipheroLabel(status) {
+  const s = (status ?? "").toLowerCase();
+  if (!s) return true;
+  return !["fulfilled", "closed", "cancelled", "canceled"].includes(s);
+}
+
+function printLabelAction(orderId, fulfillmentStatus) {
+  if (!canPrintShipheroLabel(fulfillmentStatus)) {
+    return '<span class="muted">—</span>';
+  }
+  return `<button type="button" class="btn secondary btn-sm sh-print-label" data-order-id="${esc(orderId)}">Print Label</button>`;
+}
+
+async function printShipheroLabel(orderId, btn) {
+  const msg = document.getElementById("sync-msg");
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Printing…";
+  msg.textContent = `Printing label for order…`;
+  try {
+    const data = await api(`/api/shiphero/orders/${encodeURIComponent(orderId)}/print-label`, {
+      method: "POST",
+    });
+    const labels = data.labels ?? [];
+    const tracking = labels.map((l) => l.tracking_number).filter(Boolean).join(", ");
+    const pdfUrl =
+      labels[0]?.pdf_location ||
+      labels[0]?.thermal_pdf_location ||
+      labels[0]?.paper_pdf_location ||
+      labels[0]?.image_location;
+    msg.textContent = tracking
+      ? `Label printed — tracking: ${tracking}`
+      : "Label printed successfully";
+    if (pdfUrl) window.open(pdfUrl, "_blank", "noopener,noreferrer");
+    setTimeout(refreshAll, 1500);
+  } catch (err) {
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevText;
+  }
+}
+
 async function loadShipheroOrders() {
   const hint = document.getElementById("sh-orders-hint");
   hint.textContent = "Loading orders…";
@@ -635,7 +689,7 @@ async function loadShipheroOrders() {
     hint.textContent = orders.length ? "" : "No orders found for this filter.";
 
     document.getElementById("sh-orders-table").innerHTML = table(
-      ["Order #", "Status", "Updated", "Ship To", "SKUs"],
+      ["Order #", "Status", "Updated", "Ship To", "SKUs", "Actions"],
       orders.map((o) => {
         const edges = o.line_items?.edges ?? [];
         const skuList = edges.map((e) => `<code>${esc(e.node.sku)}</code> ×${esc(e.node.quantity)}`).join(" &nbsp;");
@@ -648,6 +702,7 @@ async function loadShipheroOrders() {
           fmtTime(o.updated_at),
           esc(addr),
           skuList || '<span class="muted">—</span>',
+          printLabelAction(o.id, o.fulfillment_status),
         ];
       })
     );
@@ -921,6 +976,14 @@ document.getElementById("sh-orders-refresh").addEventListener("click", () => {
   state.shOrdersAfter = null;
   state.shOrdersHistory = [];
   if (state.tab === "shiphero") loadShipheroOrders();
+});
+
+document.getElementById("sh-orders-table").addEventListener("click", (e) => {
+  const btn = e.target.closest(".sh-print-label");
+  if (!btn || btn.disabled) return;
+  const orderId = btn.dataset.orderId;
+  if (!orderId) return;
+  void printShipheroLabel(orderId, btn);
 });
 
 document.getElementById("sh-products-search").addEventListener("input", (e) => {

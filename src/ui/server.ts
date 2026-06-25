@@ -34,6 +34,7 @@ import {
   getKoronaProductsLive,
   getKoronaReceiptsLive,
 } from "./status.js";
+import { buildGenericLabelInput } from "../utils/shiphero-label-print.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
@@ -466,6 +467,59 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         return sendJson(res, 200, { orders, pageInfo: conn.pageInfo });
       } catch (err) {
         return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    const printLabelMatch = url.pathname.match(/^\/api\/shiphero\/orders\/([^/]+)\/print-label$/);
+    if (req.method === "POST" && printLabelMatch) {
+      const orderId = decodeURIComponent(printLabelMatch[1] ?? "");
+      if (!orderId) return sendJson(res, 400, { error: "order id required" });
+      try {
+        const { ShipHeroClient } = await import("../clients/shiphero.js");
+        const sh = new ShipHeroClient();
+        const order = await sh.getOrderById(orderId);
+        if (!order) return sendJson(res, 404, { error: "Order not found" });
+
+        let input;
+        try {
+          input = buildGenericLabelInput(order);
+        } catch (err) {
+          return sendJson(res, 400, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        const result = await sh.labelPrint(input);
+        const labels = (result.labels ?? []).map((label) => ({
+          id: label.id,
+          tracking_number: label.tracking_number,
+          tracking_url: label.tracking_url,
+          order_number: label.order_number,
+          carrier: label.carrier,
+          shipping_method: label.shipping_method,
+          status: label.status,
+          pdf_location: label.label?.pdf_location,
+          paper_pdf_location: label.label?.paper_pdf_location,
+          thermal_pdf_location: label.label?.thermal_pdf_location,
+          image_location: label.label?.image_location,
+        }));
+
+        const tracking = labels.map((l) => l.tracking_number).filter(Boolean).join(", ");
+        await logSync(
+          "labels",
+          "info",
+          `Label print order ${order.order_number ?? orderId}: request_id=${result.request_id ?? "?"} tracking=${tracking || "n/a"}`
+        );
+
+        return sendJson(res, 200, {
+          request_id: result.request_id,
+          complexity: result.complexity,
+          labels,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await logSync("labels", "error", `Label print failed (${orderId}): ${message}`);
+        return sendJson(res, 500, { error: message });
       }
     }
 
