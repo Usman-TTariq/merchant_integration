@@ -103,7 +103,13 @@ export async function exportAllReceiptsCsv(): Promise<{ csv: string; receiptCoun
   let page = 1;
 
   while (page <= MAX_RECEIPT_PAGES) {
-    const list = await korona.getReceipts({ page });
+    let list: Awaited<ReturnType<KoronaClient["getReceipts"]>> | undefined;
+    try {
+      list = await korona.getReceipts({ page });
+    } catch {
+      break;
+    }
+    if (!list) break;
     const batch = list.results ?? [];
     if (!batch.length) break;
 
@@ -176,7 +182,13 @@ export async function exportShipheroInventoryCsv(opts: {
   let page = 1;
 
   while (page <= MAX_RECEIPT_PAGES) {
-    const list = await korona.getReceipts({ page, minCreateTime, maxCreateTime });
+    let list: Awaited<ReturnType<KoronaClient["getReceipts"]>> | undefined;
+    try {
+      list = await korona.getReceipts({ page, minCreateTime, maxCreateTime });
+    } catch {
+      break;
+    }
+    if (!list) break;
     const batch = list.results ?? [];
     if (!batch.length) break;
 

@@ -469,16 +469,29 @@ async function loadReports() {
   loading.hidden = false;
 
   try {
-    const summary = await api("/api/reports/summary");
-    renderReportsSummary(summary);
-
     const salesQ = new URLSearchParams({
       page: String(state.reportsSalesPage),
       limit: "50",
       days: String(state.reportsDays),
     });
     if (state.reportsSalesSearch) salesQ.set("search", state.reportsSalesSearch);
-    const sales = await api(`/api/reports/sales?${salesQ}`);
+
+    const stockQ = new URLSearchParams({
+      page: String(state.reportsPage),
+      limit: "25",
+      filter: state.reportsFilter,
+      days: String(state.reportsDays),
+    });
+    if (state.reportsSearch) stockQ.set("search", state.reportsSearch);
+
+    const [summary, sales, stock] = await Promise.all([
+      api("/api/reports/summary"),
+      api(`/api/reports/sales?${salesQ}`),
+      api(`/api/reports/stock?${stockQ}`),
+    ]);
+
+    renderReportsSummary(summary);
+
     document.getElementById("reports-sales-period").textContent = `— ${sales.periodLabel}`;
     document.getElementById("reports-sales-table").innerHTML = table(
       ["Product", "SKU", "Sold", "Source", "Korona left", "ShipHero left", "Status"],
@@ -496,16 +509,6 @@ async function loadReports() {
       state.reportsSalesPage = p;
       loadReports();
     });
-
-    const q = new URLSearchParams({
-      page: String(state.reportsPage),
-      limit: "25",
-      filter: state.reportsFilter,
-      days: String(state.reportsDays),
-    });
-    if (state.reportsSearch) q.set("search", state.reportsSearch);
-
-    const stock = await api(`/api/reports/stock?${q}`);
 
     // If still no results, try ShipHero SKU lookup as last resort
     if (stock.rows.length === 0 && state.reportsSearch.trim()) {

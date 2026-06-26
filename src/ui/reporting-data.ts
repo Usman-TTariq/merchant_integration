@@ -12,10 +12,11 @@ import {
   queryProductMappings,
   querySyncLogs,
 } from "../db.js";
-import { aggregateKoronaSales } from "../utils/report-sales.js";
+import { getCachedKoronaSales } from "../utils/report-sales.js";
 import { resolveKoronaStockQuantity } from "../utils/korona-product-stock.js";
 import { getDashboardStatus, searchKoronaProducts } from "./status.js";
 import type { KoronaProduct } from "../types/korona.js";
+import type { ShipHeroProduct } from "../types/shiphero.js";
 
 export type StockReportStatus =
   | "synced"
@@ -79,6 +80,68 @@ export interface ReportSummary {
   };
 }
 
+const SUMMARY_SAMPLE_SIZE = 25;
+const REPORT_CONCURRENCY = 12;
+
+type SalesMap = Map<string, { soldQty: number; productName: string }>;
+
+type ReportClients = {
+  korona: KoronaClient;
+  shiphero: ShipHeroClient;
+  shipheroBySku: Map<string, ShipHeroProduct | null>;
+};
+
+function createReportClients(): ReportClients {
+  return {
+    korona: new KoronaClient(),
+    shiphero: new ShipHeroClient(),
+    shipheroBySku: new Map(),
+  };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  if (!items.length) return [];
+  const results: R[] = new Array(items.length);
+  let index = 0;
+
+  async function worker(): Promise<void> {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  );
+  return results;
+}
+
+async function getShipheroProduct(
+  ctx: ReportClients,
+  sku: string
+): Promise<ShipHeroProduct | null> {
+  if (ctx.shipheroBySku.has(sku)) return ctx.shipheroBySku.get(sku) ?? null;
+  try {
+    const product = await ctx.shiphero.getProductBySku(sku);
+    ctx.shipheroBySku.set(sku, product);
+    return product;
+  } catch {
+    ctx.shipheroBySku.set(sku, null);
+    return null;
+  }
+}
+
+function salesMapFromRaw(raw: Awaited<ReturnType<typeof getCachedKoronaSales>>): SalesMap {
+  return new Map(
+    [...raw.entries()].map(([k, v]) => [k, { soldQty: v.soldQty, productName: v.productName }])
+  );
+}
+
 function classifyStockRow(
   koronaQty: number | null,
   koronaStatus: string,
@@ -126,10 +189,9 @@ async function countStockUntrackedLogs(): Promise<number> {
 }
 
 async function buildStockRow(
-  korona: KoronaClient,
-  shiphero: ShipHeroClient,
+  ctx: ReportClients,
   mapping: Record<string, unknown>,
-  salesMap?: Map<string, { soldQty: number; productName: string }>
+  salesMap?: SalesMap
 ): Promise<StockReportRow> {
   const koronaProductId = String(mapping.korona_product_id ?? "");
   const sku = String(mapping.shiphero_sku ?? "");
@@ -140,7 +202,7 @@ async function buildStockRow(
   let koronaStatus = "ok";
 
   try {
-    const resolved = await resolveKoronaStockQuantity(korona, koronaProductId, {
+    const resolved = await resolveKoronaStockQuantity(ctx.korona, koronaProductId, {
       autoEnableTracking: false,
     });
     if (resolved.status === "ok") {
@@ -153,26 +215,9 @@ async function buildStockRow(
     koronaStatus = "no_rows";
   }
 
-  let shipheroQty: number | null = null;
-  let productName: string | null = salesMap?.get(sku)?.productName ?? null;
-  try {
-    const product = await shiphero.getProductBySku(sku);
-    if (product) {
-      productName = product.name ?? productName;
-      shipheroQty = shiphero.getWarehouseOnHand(product);
-    }
-  } catch {
-    shipheroQty = null;
-  }
-
-  if (!productName) {
-    try {
-      const kp = await korona.getProduct(koronaProductId);
-      productName = kp.name ?? null;
-    } catch {
-      productName = null;
-    }
-  }
+  const product = await getShipheroProduct(ctx, sku);
+  const shipheroQty = product ? ctx.shiphero.getWarehouseOnHand(product) : null;
+  const productName = product?.name ?? salesMap?.get(sku)?.productName ?? koronaNumber ?? sku;
 
   const soldQty = salesMap?.get(sku)?.soldQty ?? 0;
   const diff = koronaQty != null && shipheroQty != null ? shipheroQty - koronaQty : null;
@@ -193,11 +238,18 @@ async function buildStockRow(
   };
 }
 
+async function buildStockRows(
+  ctx: ReportClients,
+  mappings: Record<string, unknown>[],
+  salesMap?: SalesMap
+): Promise<StockReportRow[]> {
+  return mapWithConcurrency(mappings, (mapping) => buildStockRow(ctx, mapping, salesMap), REPORT_CONCURRENCY);
+}
+
 async function buildStockRowFromKoronaProduct(
-  korona: KoronaClient,
-  shiphero: ShipHeroClient,
+  ctx: ReportClients,
   product: KoronaProduct,
-  salesMap?: Map<string, { soldQty: number; productName: string }>
+  salesMap?: SalesMap
 ): Promise<StockReportRow> {
   const koronaProductId = product.id;
   const sku = product.number ?? product.id;
@@ -208,7 +260,7 @@ async function buildStockRowFromKoronaProduct(
   let koronaStatus = "ok";
 
   try {
-    const resolved = await resolveKoronaStockQuantity(korona, koronaProductId, {
+    const resolved = await resolveKoronaStockQuantity(ctx.korona, koronaProductId, {
       autoEnableTracking: false,
     });
     if (resolved.status === "ok") {
@@ -221,17 +273,9 @@ async function buildStockRowFromKoronaProduct(
     koronaStatus = "no_rows";
   }
 
-  let shipheroQty: number | null = null;
+  const shProduct = await getShipheroProduct(ctx, sku);
+  const shipheroQty = shProduct ? ctx.shiphero.getWarehouseOnHand(shProduct) : null;
   const productName = product.name ?? salesMap?.get(sku)?.productName ?? null;
-  try {
-    const shProduct = await shiphero.getProductBySku(sku);
-    if (shProduct) {
-      shipheroQty = shiphero.getWarehouseOnHand(shProduct);
-    }
-  } catch {
-    shipheroQty = null;
-  }
-
   const soldQty = salesMap?.get(sku)?.soldQty ?? 0;
   const diff = koronaQty != null && shipheroQty != null ? shipheroQty - koronaQty : null;
   const mapped = await findKoronaProductIdBySku(sku);
@@ -269,16 +313,15 @@ async function buildStockRowFromKoronaProduct(
 }
 
 async function stockRowsFromKoronaLiveSearch(
-  korona: KoronaClient,
-  shiphero: ShipHeroClient,
+  ctx: ReportClients,
   term: string,
-  salesMap: Map<string, { soldQty: number; productName: string }>,
+  salesMap: SalesMap,
   filter: string
 ): Promise<StockReportRow[]> {
-  const list = await searchKoronaProducts(korona, term, 1, 5);
+  const list = await searchKoronaProducts(ctx.korona, term, 1, 5);
   const rows: StockReportRow[] = [];
   for (const product of list.results ?? []) {
-    const row = await buildStockRowFromKoronaProduct(korona, shiphero, product, salesMap);
+    const row = await buildStockRowFromKoronaProduct(ctx, product, salesMap);
     if (filter === "all" || row.status === filter) {
       rows.push(row);
     }
@@ -298,11 +341,9 @@ function tallyStockRows(rows: StockReportRow[]) {
   };
 }
 
-const SUMMARY_SAMPLE_SIZE = 40;
-
 export async function getReportSummary(): Promise<ReportSummary> {
   const status = await getDashboardStatus();
-  const [productMappings, orderMappings, processedReceipts, orderTypes, cursors, stockCursor] =
+  const [productMappings, orderMappings, processedReceipts, orderTypes, cursors, stockCursor, errors, warnings, stockUntrackedHints] =
     await Promise.all([
       countTable("product_mappings"),
       countOrderMappings(),
@@ -310,19 +351,14 @@ export async function getReportSummary(): Promise<ReportSummary> {
       countOrderTypes(),
       getAllCursors(),
       getCursor("stock_sync_page"),
+      countLogsByLevel("error"),
+      countLogsByLevel("warn"),
+      countStockUntrackedLogs(),
     ]);
 
-  const korona = new KoronaClient();
-  const shiphero = new ShipHeroClient();
-  const salesRaw = await aggregateKoronaSales(korona, 1);
-  const salesMap = new Map(
-    [...salesRaw.entries()].map(([k, v]) => [k, { soldQty: v.soldQty, productName: v.productName }])
-  );
+  const ctx = createReportClients();
   const sampleBatch = await queryProductMappings({ page: 1, limit: SUMMARY_SAMPLE_SIZE });
-  const sampleRows: StockReportRow[] = [];
-  for (const row of sampleBatch.rows) {
-    sampleRows.push(await buildStockRow(korona, shiphero, row, salesMap));
-  }
+  const sampleRows = await buildStockRows(ctx, sampleBatch.rows);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -337,12 +373,39 @@ export async function getReportSummary(): Promise<ReportSummary> {
       stockBatchCursor: stockCursor,
       cursors,
     },
-    logs: {
-      errors: await countLogsByLevel("error"),
-      warnings: await countLogsByLevel("warn"),
-      stockUntrackedHints: await countStockUntrackedLogs(),
-    },
+    logs: { errors, warnings, stockUntrackedHints },
     stockScan: tallyStockRows(sampleRows),
+  };
+}
+
+async function buildSalesReportRow(
+  ctx: ReportClients,
+  entry: { sku: string; productName: string; soldQty: number; sources: Set<string> },
+  mapping: string | null
+): Promise<SalesReportRow> {
+  let koronaQty: number | null = null;
+  let shipheroQty: number | null = null;
+  let koronaStatus = "ok";
+
+  if (mapping) {
+    const resolved = await resolveKoronaStockQuantity(ctx.korona, mapping, { autoEnableTracking: false });
+    if (resolved.status === "ok") koronaQty = resolved.qty;
+    else koronaStatus = resolved.status;
+  }
+
+  const product = await getShipheroProduct(ctx, entry.sku);
+  shipheroQty = product ? ctx.shiphero.getWarehouseOnHand(product) : null;
+
+  const { status, statusLabel } = classifyStockRow(koronaQty, koronaStatus, shipheroQty);
+  return {
+    sku: entry.sku,
+    productName: entry.productName,
+    soldQty: entry.soldQty,
+    sources: [...entry.sources],
+    koronaQty,
+    shipheroQty,
+    status,
+    statusLabel,
   };
 }
 
@@ -364,9 +427,8 @@ export async function getSalesReport(opts: {
   const limit = Math.min(100, Math.max(10, opts.limit ?? 50));
   const search = opts.search?.trim().toLowerCase() ?? "";
 
-  const korona = new KoronaClient();
-  const shiphero = new ShipHeroClient();
-  const salesRaw = await aggregateKoronaSales(korona, days);
+  const ctx = createReportClients();
+  const salesRaw = await getCachedKoronaSales(ctx.korona, days);
 
   let entries = [...salesRaw.values()].sort((a, b) => b.soldQty - a.soldQty);
   if (search) {
@@ -377,42 +439,18 @@ export async function getSalesReport(opts: {
 
   const total = entries.length;
   const slice = entries.slice((page - 1) * limit, page * limit);
-  const rows: SalesReportRow[] = [];
+  const mappingPairs = await Promise.all(
+    slice.map(async (entry) => [entry.sku, await findKoronaProductIdBySku(entry.sku)] as const)
+  );
+  const mappingBySku = new Map(mappingPairs);
 
-  for (const entry of slice) {
-    const mapping = await findKoronaProductIdBySku(entry.sku);
-    let koronaQty: number | null = null;
-    let shipheroQty: number | null = null;
-    let koronaStatus = "ok";
-
-    if (mapping) {
-      const resolved = await resolveKoronaStockQuantity(korona, mapping, { autoEnableTracking: false });
-      if (resolved.status === "ok") koronaQty = resolved.qty;
-      else koronaStatus = resolved.status;
-    }
-
-    try {
-      const product = await shiphero.getProductBySku(entry.sku);
-      shipheroQty = product ? shiphero.getWarehouseOnHand(product) : null;
-    } catch {
-      shipheroQty = null;
-    }
-
-    const { status, statusLabel } = classifyStockRow(koronaQty, koronaStatus, shipheroQty);
-    rows.push({
-      sku: entry.sku,
-      productName: entry.productName,
-      soldQty: entry.soldQty,
-      sources: [...entry.sources],
-      koronaQty,
-      shipheroQty,
-      status,
-      statusLabel,
-    });
-  }
+  const rows = await mapWithConcurrency(
+    slice,
+    (entry) => buildSalesReportRow(ctx, entry, mappingBySku.get(entry.sku) ?? null),
+    REPORT_CONCURRENCY
+  );
 
   const periodLabel = days === 1 ? "Today (PT)" : `Last ${days} days (PT)`;
-
   return { rows, page, limit, total, days, periodLabel };
 }
 
@@ -434,20 +472,13 @@ export async function getStockReport(opts: {
   const search = opts.search?.trim() ?? "";
   const filter = opts.filter?.trim() || "all";
 
-  const korona = new KoronaClient();
-  const shiphero = new ShipHeroClient();
+  const ctx = createReportClients();
   const salesDays = Math.min(30, Math.max(1, opts.days ?? 1));
-  const salesRaw = await aggregateKoronaSales(korona, salesDays);
-  const salesMap = new Map(
-    [...salesRaw.entries()].map(([k, v]) => [k, { soldQty: v.soldQty, productName: v.productName }])
-  );
+  const salesMap = salesMapFromRaw(await getCachedKoronaSales(ctx.korona, salesDays));
 
   if (filter === "all" && !search) {
     const { rows: mappings, total } = await queryProductMappings({ page, limit, search });
-    const rows: StockReportRow[] = [];
-    for (const mapping of mappings) {
-      rows.push(await buildStockRow(korona, shiphero, mapping, salesMap));
-    }
+    const rows = await buildStockRows(ctx, mappings, salesMap);
     return { rows, page, limit, total, scanned: mappings.length };
   }
 
@@ -464,9 +495,9 @@ export async function getStockReport(opts: {
     if (scanPage === 1) totalMappings = batch.total;
     if (!batch.rows.length) break;
 
-    for (const mapping of batch.rows) {
+    const built = await buildStockRows(ctx, batch.rows, salesMap);
+    for (const row of built) {
       scanned++;
-      const row = await buildStockRow(korona, shiphero, mapping, salesMap);
       if (filter === "all" || row.status === filter) {
         matched.push(row);
       }
@@ -481,7 +512,7 @@ export async function getStockReport(opts: {
   results.push(...matched.slice(targetStart, targetEnd));
 
   if (search && results.length === 0) {
-    const liveRows = await stockRowsFromKoronaLiveSearch(korona, shiphero, search, salesMap, filter);
+    const liveRows = await stockRowsFromKoronaLiveSearch(ctx, search, salesMap, filter);
     return {
       rows: liveRows.slice(0, limit),
       page,

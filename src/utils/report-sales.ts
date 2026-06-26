@@ -1,4 +1,4 @@
-import type { KoronaClient } from "../clients/korona.js";
+import { KoronaClient } from "../clients/korona.js";
 import { config } from "../config.js";
 import { findShipheroSku } from "../db.js";
 import { sanitizeSku } from "./sku.js";
@@ -11,6 +11,16 @@ export interface SalesAggregate {
   soldQty: number;
   sources: Set<string>;
 }
+
+const SALES_CACHE_TTL_MS = 3 * 60_000;
+const salesCache = new Map<
+  number,
+  {
+    expiresAt: number;
+    data: Map<string, SalesAggregate>;
+    inflight?: Promise<Map<string, SalesAggregate>>;
+  }
+>();
 
 function dateKeyPt(iso: string | undefined): string | null {
   if (!iso) return null;
@@ -26,6 +36,27 @@ function dateKeyPt(iso: string | undefined): string | null {
 
 function todayKeyPt(): string {
   return dateKeyPt(new Date().toISOString()) ?? "";
+}
+
+function ptDateParts(offsetDays = 0): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.dashboard.displayTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(Date.now() + offsetDays * 86_400_000));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? "0");
+  return { y: get("year"), m: get("month"), d: get("day") };
+}
+
+/** Korona receipt query window for sales aggregation (display timezone). */
+export function salesReceiptWindow(days: number): { minCreateTime: string; maxCreateTime: string } {
+  const end = ptDateParts(0);
+  const start = ptDateParts(-(Math.max(1, days) - 1));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const minCreateTime = `${start.y}-${pad(start.m)}-${pad(start.d)}T00:00:00`;
+  const maxCreateTime = `${end.y}-${pad(end.m)}-${pad(end.d)}T23:59:59`;
+  return { minCreateTime, maxCreateTime };
 }
 
 function isWithinDays(iso: string | undefined, days: number): boolean {
@@ -124,16 +155,26 @@ async function ingestCustomerOrder(
 const MAX_RECEIPT_PAGES = 20;
 const MAX_ORDER_PAGES = 10;
 
-/** Aggregate sold qty per SKU from recent Korona receipts and studio orders. */
-export async function aggregateKoronaSales(
+async function aggregateKoronaSalesUncached(
   korona: KoronaClient,
   days = 1
 ): Promise<Map<string, SalesAggregate>> {
   const map = new Map<string, SalesAggregate>();
+  const window = salesReceiptWindow(days);
 
   let receiptPage = 1;
   while (receiptPage <= MAX_RECEIPT_PAGES) {
-    const list = await korona.getReceipts({ page: receiptPage });
+    let list: Awaited<ReturnType<KoronaClient["getReceipts"]>> | undefined;
+    try {
+      list = await korona.getReceipts({
+        page: receiptPage,
+        minCreateTime: window.minCreateTime,
+        maxCreateTime: window.maxCreateTime,
+      });
+    } catch {
+      break;
+    }
+    if (!list) break;
     const batch = list.results ?? [];
     if (!batch.length) break;
     for (const receipt of batch) {
@@ -145,16 +186,64 @@ export async function aggregateKoronaSales(
 
   let orderPage = 1;
   while (orderPage <= MAX_ORDER_PAGES) {
-    const list = await korona.getCustomerOrders({ page: orderPage });
-    const batch = list?.results ?? [];
+    let list: Awaited<ReturnType<KoronaClient["getCustomerOrders"]>> | undefined;
+    try {
+      list = await korona.getCustomerOrders({ page: orderPage });
+    } catch {
+      break;
+    }
+    if (!list) break;
+    const batch = list.results ?? [];
     if (!batch.length) break;
     for (const order of batch) {
       await ingestCustomerOrder(map, order, days);
     }
-    const pages = list?.pagesTotal ?? 1;
+    const pages = list.pagesTotal ?? 1;
     if (orderPage >= pages) break;
     orderPage++;
   }
 
   return map;
+}
+
+/** Cached sold-qty map (shared across report endpoints for the same day range). */
+export async function getCachedKoronaSales(
+  korona: KoronaClient,
+  days = 1
+): Promise<Map<string, SalesAggregate>> {
+  const key = Math.min(30, Math.max(1, days));
+  const now = Date.now();
+  const hit = salesCache.get(key);
+  if (hit && now < hit.expiresAt) return hit.data;
+  if (hit?.inflight) return hit.inflight;
+
+  const inflight = aggregateKoronaSalesUncached(korona, key).then((data) => {
+    salesCache.set(key, { data, expiresAt: Date.now() + SALES_CACHE_TTL_MS });
+    return data;
+  });
+
+  salesCache.set(key, {
+    data: hit?.data ?? new Map(),
+    expiresAt: 0,
+    inflight,
+  });
+
+  try {
+    return await inflight;
+  } finally {
+    const entry = salesCache.get(key);
+    if (entry) delete entry.inflight;
+  }
+}
+
+/** @deprecated Use getCachedKoronaSales */
+export async function aggregateKoronaSales(
+  korona: KoronaClient,
+  days = 1
+): Promise<Map<string, SalesAggregate>> {
+  return getCachedKoronaSales(korona, days);
+}
+
+export function clearKoronaSalesCache(): void {
+  salesCache.clear();
 }

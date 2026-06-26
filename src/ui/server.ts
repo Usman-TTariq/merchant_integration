@@ -345,20 +345,27 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     }
 
     if (req.method === "GET" && url.pathname === "/api/reports/summary") {
-      return sendJson(res, 200, await getReportSummary());
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/reports/stock") {
       return sendJson(
         res,
         200,
-        await getStockReport({
-          page: Number(q.page ?? 1),
-          limit: Number(q.limit ?? 25),
-          search: q.search ?? "",
-          filter: q.filter ?? "all",
-          days: Number(q.days ?? 1),
-        })
+        await cached("reports:summary", 2 * 60_000, () => getReportSummary())
+      );
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/reports/stock") {
+      const stockKey = `reports:stock:${q.page ?? 1}:${q.limit ?? 25}:${q.filter ?? "all"}:${q.days ?? 1}:${q.search ?? ""}`;
+      return sendJson(
+        res,
+        200,
+        await cached(stockKey, 2 * 60_000, () =>
+          getStockReport({
+            page: Number(q.page ?? 1),
+            limit: Number(q.limit ?? 25),
+            search: q.search ?? "",
+            filter: q.filter ?? "all",
+            days: Number(q.days ?? 1),
+          })
+        )
       );
     }
 
@@ -639,15 +646,18 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     }
 
     if (req.method === "GET" && url.pathname === "/api/reports/sales") {
+      const salesKey = `reports:sales:${q.page ?? 1}:${q.limit ?? 50}:${q.days ?? 1}:${q.search ?? ""}`;
       return sendJson(
         res,
         200,
-        await getSalesReport({
-          page: Number(q.page ?? 1),
-          limit: Number(q.limit ?? 50),
-          search: q.search ?? "",
-          days: Number(q.days ?? 1),
-        })
+        await cached(salesKey, 2 * 60_000, () =>
+          getSalesReport({
+            page: Number(q.page ?? 1),
+            limit: Number(q.limit ?? 50),
+            search: q.search ?? "",
+            days: Number(q.days ?? 1),
+          })
+        )
       );
     }
 
