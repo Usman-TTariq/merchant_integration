@@ -52,8 +52,8 @@ export async function getCursors(): Promise<Array<{ key: string; value: string; 
   return formatRowTimes(rows, ["updated_at"]);
 }
 
-export async function getProducts(page = 1, limit = 50, search = "") {
-  const { rows, total } = await queryProductMappings({ page, limit, search });
+export async function getProducts(page = 1, limit = 50, search = "", linkedOnly = false) {
+  const { rows, total } = await queryProductMappings({ page, limit, search, linkedOnly });
   return {
     rows: formatRowTimes(rows as Record<string, unknown>[], ["updated_at"]),
     total,

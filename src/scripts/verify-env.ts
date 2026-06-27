@@ -14,7 +14,7 @@ const required: Array<{ key: string; ok: boolean; hint?: string }> = [
   {
     key: "KORONA_WAREHOUSE_ID",
     ok: Boolean(process.env.KORONA_WAREHOUSE_ID?.trim()),
-    hint: "Required for Korona stock reads (inventory_replace source)",
+    hint: "Required for Korona stock reads (delta sync source)",
   },
   {
     key: "SHIPHERO_WAREHOUSE_ID",

@@ -42,8 +42,48 @@ function sqlite(): Database.Database {
       message TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS shiphero_barcode_index (
+      barcode TEXT PRIMARY KEY,
+      shiphero_sku TEXT NOT NULL,
+      on_hand INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_shiphero_barcode_index_sku ON shiphero_barcode_index (shiphero_sku);
+    CREATE TABLE IF NOT EXISTS korona_product_barcodes (
+      korona_product_id TEXT PRIMARY KEY,
+      barcodes TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
+  try {
+    db.exec(`ALTER TABLE shiphero_barcode_index ADD COLUMN on_hand INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    /* column exists */
+  }
+  migrateShipheroBarcodeIndexMultiSku(db);
   return db;
+}
+
+function migrateShipheroBarcodeIndexMultiSku(database: Database.Database): void {
+  const row = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='shiphero_barcode_index'")
+    .get() as { sql?: string } | undefined;
+  if (row?.sql?.includes("PRIMARY KEY (barcode, shiphero_sku)")) return;
+  database.exec(`
+    CREATE TABLE shiphero_barcode_index_v2 (
+      barcode TEXT NOT NULL,
+      shiphero_sku TEXT NOT NULL,
+      on_hand INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (barcode, shiphero_sku)
+    );
+    INSERT OR IGNORE INTO shiphero_barcode_index_v2 (barcode, shiphero_sku, on_hand, updated_at)
+      SELECT barcode, shiphero_sku, on_hand, updated_at FROM shiphero_barcode_index;
+    DROP TABLE shiphero_barcode_index;
+    ALTER TABLE shiphero_barcode_index_v2 RENAME TO shiphero_barcode_index;
+    CREATE INDEX IF NOT EXISTS idx_shiphero_barcode_index_sku ON shiphero_barcode_index (shiphero_sku);
+    CREATE INDEX IF NOT EXISTS idx_shiphero_barcode_index_on_hand ON shiphero_barcode_index (on_hand DESC);
+  `);
 }
 
 export async function getCursor(key: string): Promise<string | null> {
@@ -134,6 +174,119 @@ export async function findShipheroSku(
   return null;
 }
 
+export async function upsertShipheroBarcodeIndex(
+  entries: Array<{ barcode: string; shipheroSku: string; onHand?: number }>
+): Promise<number> {
+  if (!entries.length) return 0;
+  const stmt = sqlite().prepare(
+    `INSERT INTO shiphero_barcode_index (barcode, shiphero_sku, on_hand, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(barcode, shiphero_sku) DO UPDATE SET
+       on_hand = MAX(shiphero_barcode_index.on_hand, excluded.on_hand),
+       updated_at = excluded.updated_at`
+  );
+  const tx = sqlite().transaction((rows: Array<{ barcode: string; shipheroSku: string; onHand?: number }>) => {
+    for (const row of rows) stmt.run(row.barcode, row.shipheroSku, Math.max(0, Math.round(row.onHand ?? 0)));
+  });
+  tx(entries);
+  return entries.length;
+}
+
+export async function findShipheroSkuByBarcode(barcode: string): Promise<string | null> {
+  const row = await lookupShipheroBarcode(barcode);
+  return row?.shipheroSku ?? null;
+}
+
+export async function lookupShipheroBarcode(
+  barcode: string
+): Promise<{ shipheroSku: string; onHand: number } | null> {
+  const row = sqlite()
+    .prepare(
+      "SELECT shiphero_sku, on_hand FROM shiphero_barcode_index WHERE barcode = ? ORDER BY on_hand DESC LIMIT 1"
+    )
+    .get(barcode) as { shiphero_sku: string; on_hand: number } | undefined;
+  if (!row) return null;
+  return { shipheroSku: row.shiphero_sku, onHand: row.on_hand ?? 0 };
+}
+
+export async function lookupShipheroBarcodeCandidates(
+  barcodes: string[]
+): Promise<Array<{ barcode: string; shipheroSku: string; onHand: number }>> {
+  const normalized = [...new Set(barcodes.map((bc) => bc.trim()).filter(Boolean))];
+  if (!normalized.length) return [];
+  const placeholders = normalized.map(() => "?").join(", ");
+  return sqlite()
+    .prepare(
+      `SELECT barcode, shiphero_sku AS shipheroSku, on_hand AS onHand
+       FROM shiphero_barcode_index
+       WHERE barcode IN (${placeholders})
+       ORDER BY on_hand DESC, shiphero_sku ASC`
+    )
+    .all(...normalized) as Array<{ barcode: string; shipheroSku: string; onHand: number }>;
+}
+
+export async function getShipheroOnHandForSku(sku: string): Promise<number> {
+  const row = sqlite()
+    .prepare("SELECT MAX(on_hand) AS on_hand FROM shiphero_barcode_index WHERE shiphero_sku = ?")
+    .get(sku) as { on_hand: number | null } | undefined;
+  return row?.on_hand ?? 0;
+}
+
+export async function listProductMappingsForRelink(): Promise<
+  Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }>
+> {
+  return sqlite()
+    .prepare(
+      `SELECT korona_product_id AS koronaProductId, korona_product_number AS koronaProductNumber, shiphero_sku AS shipheroSku
+       FROM product_mappings`
+    )
+    .all() as Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }>;
+}
+
+export async function countShipheroBarcodeIndex(): Promise<number> {
+  return (sqlite().prepare("SELECT COUNT(*) AS c FROM shiphero_barcode_index").get() as { c: number }).c;
+}
+
+export async function getKoronaBarcodes(koronaProductId: string): Promise<string[]> {
+  const row = sqlite()
+    .prepare("SELECT barcodes FROM korona_product_barcodes WHERE korona_product_id = ?")
+    .get(koronaProductId) as { barcodes: string } | undefined;
+  if (!row?.barcodes) return [];
+  try {
+    const parsed = JSON.parse(row.barcodes) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function upsertKoronaBarcodes(
+  entries: Array<{ koronaProductId: string; barcodes: string[] }>
+): Promise<number> {
+  if (!entries.length) return 0;
+  const stmt = sqlite().prepare(
+    `INSERT INTO korona_product_barcodes (korona_product_id, barcodes, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(korona_product_id) DO UPDATE SET
+       barcodes = excluded.barcodes,
+       updated_at = excluded.updated_at`
+  );
+  const tx = sqlite().transaction((rows: Array<{ koronaProductId: string; barcodes: string[] }>) => {
+    for (const row of rows) {
+      if (!row.barcodes.length) continue;
+      stmt.run(row.koronaProductId, JSON.stringify(row.barcodes));
+    }
+  });
+  tx(entries);
+  return entries.length;
+}
+
+export async function countKoronaBarcodesCache(): Promise<number> {
+  return (sqlite().prepare("SELECT COUNT(*) AS c FROM korona_product_barcodes").get() as { c: number }).c;
+}
+
 export async function isReceiptProcessed(receiptId: string): Promise<boolean> {
   return Boolean(sqlite().prepare("SELECT 1 FROM processed_receipts WHERE receipt_id = ?").get(receiptId));
 }
@@ -186,10 +339,34 @@ export async function queryProductMappings(opts: {
   page: number;
   limit: number;
   search?: string;
+  linkedOnly?: boolean;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const db = sqlite();
   const offset = (opts.page - 1) * opts.limit;
   const search = opts.search?.trim();
+  if (opts.linkedOnly) {
+    const rows = db
+      .prepare(
+        `SELECT pm.korona_product_id, pm.korona_product_number, pm.shiphero_sku, pm.korona_revision, pm.updated_at,
+                COALESCE(
+                  (SELECT MAX(s.on_hand) FROM shiphero_barcode_index s WHERE s.shiphero_sku = pm.shiphero_sku),
+                  0
+                ) AS shiphero_on_hand
+         FROM product_mappings pm
+         WHERE pm.korona_product_number IS NOT NULL AND pm.shiphero_sku != pm.korona_product_number
+         ORDER BY shiphero_on_hand DESC, pm.updated_at DESC LIMIT ? OFFSET ?`
+      )
+      .all(opts.limit, offset) as Record<string, unknown>[];
+    const total = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM product_mappings
+           WHERE korona_product_number IS NOT NULL AND shiphero_sku != korona_product_number`
+        )
+        .get() as { c: number }
+    ).c;
+    return { rows, total };
+  }
   if (search) {
     const term = `%${search}%`;
     const rows = db
@@ -213,7 +390,14 @@ export async function queryProductMappings(opts: {
   const rows = db
     .prepare(
       `SELECT korona_product_id, korona_product_number, shiphero_sku, korona_revision, updated_at
-       FROM product_mappings ORDER BY updated_at DESC LIMIT ? OFFSET ?`
+       FROM product_mappings
+       ORDER BY
+         CASE
+           WHEN korona_product_number IS NOT NULL AND shiphero_sku != korona_product_number THEN 0
+           ELSE 1
+         END,
+         updated_at DESC
+       LIMIT ? OFFSET ?`
     )
     .all(opts.limit, offset) as Record<string, unknown>[];
   const total = (db.prepare("SELECT COUNT(*) AS c FROM product_mappings").get() as { c: number }).c;

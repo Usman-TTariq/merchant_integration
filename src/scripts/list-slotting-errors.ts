@@ -1,5 +1,6 @@
 /**
- * List SKUs blocked by ShipHero dynamic slotting from sync_log.
+ * List historical SKUs blocked by ShipHero dynamic slotting (inventory_replace era).
+ * Current stock sync uses inventory_add/remove delta and does not log slotting errors.
  * Usage: npm run slotting:list
  */
 import "dotenv/config";
@@ -21,13 +22,11 @@ for (const row of rows) {
   if (match?.[1]) skus.add(match[1].trim());
 }
 
-console.log(`=== Dynamic slotting blocked SKUs (${skus.size}) ===\n`);
+console.log(`=== Historical dynamic slotting blocked SKUs (${skus.size}) ===\n`);
 if (skus.size === 0) {
   console.log("No slotting warnings in recent stock logs.");
-  console.log("\nIf inventory_replace fails at runtime:");
-  console.log("  1. Confirm your ShipHero account supports inventory_replace for this warehouse.");
-  console.log("  2. Contact ShipHero support for non-slotting inventory API path.");
-  console.log("  3. Re-test a mismatch SKU from Reports after account changes.");
+  console.log("\nStock sync now uses inventory_add / inventory_remove delta (not inventory_replace).");
+  console.log("Re-run sync:stock or wait for stock cron to push Korona on-hand.");
   process.exit(0);
 }
 
@@ -35,5 +34,5 @@ for (const sku of [...skus].sort()) {
   console.log(sku);
 }
 
-console.log("\nAction: contact ShipHero support with these SKUs.");
-console.log("Until resolved, stock cron logs slotting=N and skips these SKUs.");
+console.log("\nThese SKUs failed under the old inventory_replace path.");
+console.log("Re-sync with: npm run sync:stock-sku -- <SKU>");

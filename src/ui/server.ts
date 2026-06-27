@@ -270,7 +270,12 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       return sendJson(
         res,
         200,
-        await getProducts(Number(q.page ?? 1), Number(q.limit ?? 50), q.search ?? "")
+        await getProducts(
+          Number(q.page ?? 1),
+          Number(q.limit ?? 50),
+          q.search ?? "",
+          q.linked === "1" || q.linked === "true"
+        )
       );
     }
 
@@ -638,6 +643,12 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
           // Fallback: filter current page results
           products = products.filter((p) => p.sku?.toLowerCase().includes(search) || p.name?.toLowerCase().includes(search));
         }
+
+        products.sort(
+          (a, b) =>
+            (b.onHand ?? 0) - (a.onHand ?? 0) ||
+            (a.sku ?? "").localeCompare(b.sku ?? "", undefined, { sensitivity: "base" })
+        );
 
         return sendJson(res, 200, { products, pageInfo: search ? { hasNextPage: false, endCursor: null } : conn.pageInfo });
       } catch (err) {

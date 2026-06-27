@@ -98,6 +98,145 @@ export async function findShipheroSku(
   return null;
 }
 
+export async function upsertShipheroBarcodeIndex(
+  entries: Array<{ barcode: string; shipheroSku: string; onHand?: number }>
+): Promise<number> {
+  if (!entries.length) return 0;
+  const sb = getSupabase();
+  for (const entry of entries) {
+    const onHand = Math.max(0, Math.round(entry.onHand ?? 0));
+    const { data: existing, error: readErr } = await sb
+      .from("shiphero_barcode_index")
+      .select("on_hand")
+      .eq("barcode", entry.barcode)
+      .eq("shiphero_sku", entry.shipheroSku)
+      .maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+
+    const { error } = await sb.from("shiphero_barcode_index").upsert(
+      {
+        barcode: entry.barcode,
+        shiphero_sku: entry.shipheroSku,
+        on_hand: Math.max(onHand, Number(existing?.on_hand ?? 0)),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "barcode,shiphero_sku" }
+    );
+    if (error) throw new Error(error.message);
+  }
+  return entries.length;
+}
+
+export async function findShipheroSkuByBarcode(barcode: string): Promise<string | null> {
+  const row = await lookupShipheroBarcode(barcode);
+  return row?.shipheroSku ?? null;
+}
+
+export async function lookupShipheroBarcode(
+  barcode: string
+): Promise<{ shipheroSku: string; onHand: number } | null> {
+  const { data, error } = await getSupabase()
+    .from("shiphero_barcode_index")
+    .select("shiphero_sku, on_hand")
+    .eq("barcode", barcode)
+    .order("on_hand", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data?.shiphero_sku) return null;
+  return { shipheroSku: data.shiphero_sku, onHand: Number(data.on_hand ?? 0) };
+}
+
+export async function lookupShipheroBarcodeCandidates(
+  barcodes: string[]
+): Promise<Array<{ barcode: string; shipheroSku: string; onHand: number }>> {
+  const normalized = [...new Set(barcodes.map((bc) => bc.trim()).filter(Boolean))];
+  if (!normalized.length) return [];
+  const { data, error } = await getSupabase()
+    .from("shiphero_barcode_index")
+    .select("barcode, shiphero_sku, on_hand")
+    .in("barcode", normalized)
+    .order("on_hand", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    barcode: String(row.barcode),
+    shipheroSku: String(row.shiphero_sku),
+    onHand: Number(row.on_hand ?? 0),
+  }));
+}
+
+export async function getShipheroOnHandForSku(sku: string): Promise<number> {
+  const { data, error } = await getSupabase()
+    .from("shiphero_barcode_index")
+    .select("on_hand")
+    .eq("shiphero_sku", sku)
+    .order("on_hand", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Number(data?.on_hand ?? 0);
+}
+
+export async function listProductMappingsForRelink(): Promise<
+  Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }>
+> {
+  const { data, error } = await getSupabase()
+    .from("product_mappings")
+    .select("korona_product_id, korona_product_number, shiphero_sku");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    koronaProductId: String(row.korona_product_id),
+    koronaProductNumber: row.korona_product_number ? String(row.korona_product_number) : null,
+    shipheroSku: String(row.shiphero_sku),
+  }));
+}
+
+export async function countShipheroBarcodeIndex(): Promise<number> {
+  return countTable("shiphero_barcode_index");
+}
+
+export async function getKoronaBarcodes(koronaProductId: string): Promise<string[]> {
+  const { data, error } = await getSupabase()
+    .from("korona_product_barcodes")
+    .select("barcodes")
+    .eq("korona_product_id", koronaProductId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data?.barcodes) return [];
+  try {
+    const parsed = JSON.parse(String(data.barcodes)) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function upsertKoronaBarcodes(
+  entries: Array<{ koronaProductId: string; barcodes: string[] }>
+): Promise<number> {
+  if (!entries.length) return 0;
+  const { error } = await getSupabase()
+    .from("korona_product_barcodes")
+    .upsert(
+      entries
+        .filter((e) => e.barcodes.length)
+        .map((e) => ({
+          korona_product_id: e.koronaProductId,
+          barcodes: JSON.stringify(e.barcodes),
+          updated_at: new Date().toISOString(),
+        })),
+      { onConflict: "korona_product_id" }
+    );
+  if (error) throw new Error(error.message);
+  return entries.length;
+}
+
+export async function countKoronaBarcodesCache(): Promise<number> {
+  return countTable("korona_product_barcodes");
+}
+
 export async function isReceiptProcessed(receiptId: string): Promise<boolean> {
   const { data, error } = await getSupabase()
     .from("processed_receipts")
@@ -172,11 +311,39 @@ export async function queryProductMappings(opts: {
   page: number;
   limit: number;
   search?: string;
+  linkedOnly?: boolean;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const sb = getSupabase();
   const from = (opts.page - 1) * opts.limit;
   const to = from + opts.limit - 1;
   const search = opts.search?.trim();
+
+  if (opts.linkedOnly) {
+    const { data, error } = await sb
+      .from("product_mappings")
+      .select("*")
+      .not("korona_product_number", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    const filtered = (data ?? []).filter(
+      (row) => row.shiphero_sku && row.korona_product_number && row.shiphero_sku !== row.korona_product_number
+    );
+    const withOnHand = await Promise.all(
+      filtered.map(async (row) => ({
+        ...row,
+        shiphero_on_hand: await getShipheroOnHandForSku(String(row.shiphero_sku)),
+      }))
+    );
+    withOnHand.sort(
+      (a, b) =>
+        Number(b.shiphero_on_hand ?? 0) - Number(a.shiphero_on_hand ?? 0) ||
+        String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? ""))
+    );
+    const total = withOnHand.length;
+    const rows = withOnHand.slice(from, to + 1);
+    return { rows: rows as Record<string, unknown>[], total };
+  }
 
   let query = sb
     .from("product_mappings")

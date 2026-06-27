@@ -3,6 +3,8 @@ import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
 import { initDatabase, upsertProductMapping } from "../db.js";
 import { koronaSku, sanitizeSku } from "../utils/sku.js";
+import { koronaProductCodes, primaryKoronaCode } from "../utils/korona-codes.js";
+import { resolveShipheroProduct } from "../utils/resolve-shiphero-product.js";
 
 const target = process.argv[2];
 if (!target) {
@@ -18,32 +20,34 @@ const shiphero = new ShipHeroClient();
 const isUuid = /^[0-9a-f-]{36}$/i.test(target);
 
 async function syncProduct(product: Awaited<ReturnType<KoronaClient["getProduct"]>>) {
-  const sku = sanitizeSku(koronaSku(product));
-  const price = product.prices?.[0]?.value;
-  const barcode = product.codes?.find((c) => c.primary)?.code ?? product.codes?.[0]?.code;
-  const existing = await shiphero.getProductBySku(sku);
+  const full = koronaProductCodes(product).length ? product : await korona.getProduct(product.id);
+  const barcodes = koronaProductCodes(full);
+  const resolved = await resolveShipheroProduct(shiphero, full, barcodes);
+  const shipheroSku = resolved.shipheroSku;
+  const price = full.prices?.[0]?.value;
+  const barcode = primaryKoronaCode(full);
 
-  if (!existing) {
+  if (!resolved.existing) {
     await shiphero.createProduct({
-      name: product.name ?? sku,
-      sku,
+      name: full.name ?? resolved.createSku,
+      sku: resolved.createSku,
       price: price != null ? String(price) : "0.00",
       barcode,
       onHand: 0,
     });
-    console.log("Created ShipHero product", sku);
+    console.log("Created ShipHero product", resolved.createSku);
   } else {
-    await shiphero.updateProduct({ sku, name: product.name ?? sku, barcode });
-    console.log("Updated ShipHero product", sku);
+    await shiphero.updateProduct({ sku: shipheroSku, name: full.name ?? shipheroSku, barcode });
+    console.log("Linked/updated ShipHero product", shipheroSku, resolved.matchedBy ?? "");
   }
 
   await upsertProductMapping({
-    koronaProductId: product.id,
-    koronaProductNumber: product.number ?? null,
-    shipheroSku: sku,
-    koronaRevision: product.revision ?? null,
+    koronaProductId: full.id,
+    koronaProductNumber: full.number ?? null,
+    shipheroSku,
+    koronaRevision: full.revision ?? null,
   });
-  console.log("Mapped", product.number, "->", sku);
+  console.log("Mapped", full.number, "->", shipheroSku);
 }
 
 if (isUuid) {

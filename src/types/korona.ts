@@ -17,7 +17,7 @@ export interface KoronaProduct {
   name?: string;
   deleted?: boolean;
   trackInventory?: boolean;
-  codes?: Array<{ code?: string; primary?: boolean }>;
+  codes?: Array<{ code?: string; productCode?: string; primary?: boolean }>;
   prices?: Array<{ value?: number; priceGroup?: KoronaReference }>;
 }
 

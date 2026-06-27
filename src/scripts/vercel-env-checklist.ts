@@ -62,7 +62,7 @@ console.log("Notes:");
 console.log("  - Use SHIPHERO_REFRESH_TOKEN OR SHIPHERO_ACCESS_TOKEN (not both required).");
 console.log("  - Set DATABASE_PROVIDER=supabase on Vercel.");
 console.log("  - CRON_SECRET: long random string; Vercel cron sends Authorization: Bearer <CRON_SECRET>");
-console.log("  - SYNC_KORONA_STOCK=true for level-based inventory_replace sync.");
+console.log("  - SYNC_KORONA_STOCK=true for level-based inventory_add/remove delta sync.");
 console.log("\nVerify: npm run env:verify -- --production");
 
 if (missing > 0) {

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { KoronaClient } from "../clients/korona.js";
 import { ShipHeroClient } from "../clients/shiphero.js";
-import { findShipheroSku, initDatabase } from "../db.js";
+import { findKoronaProductIdBySku, findShipheroSku, initDatabase } from "../db.js";
 import { syncProductStock } from "../sync/stock.js";
 import { sanitizeSku } from "../utils/sku.js";
 
@@ -16,16 +16,19 @@ await initDatabase();
 const korona = new KoronaClient();
 const shiphero = new ShipHeroClient();
 
-let productId: string | null = null;
-for await (const batch of korona.paginate((page) => korona.getProducts({ page }))) {
-  for (const product of batch) {
-    const sku = sanitizeSku(product.number ?? product.id);
-    if (sku === skuArg || product.number === skuArg) {
-      productId = product.id;
-      break;
+let productId = await findKoronaProductIdBySku(skuArg);
+
+if (!productId) {
+  for await (const batch of korona.paginate((page) => korona.getProducts({ page }))) {
+    for (const product of batch) {
+      const sku = sanitizeSku(product.number ?? product.id);
+      if (sku === skuArg || product.number === skuArg) {
+        productId = product.id;
+        break;
+      }
     }
+    if (productId) break;
   }
-  if (productId) break;
 }
 
 if (!productId) {

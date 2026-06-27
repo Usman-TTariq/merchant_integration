@@ -129,6 +129,65 @@ export class ShipHeroClient {
     }
   }
 
+  async listProductsPage(
+    first: number,
+    after?: string | null
+  ): Promise<{
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    products: Array<{ sku: string; barcode?: string; onHand: number }>;
+  }> {
+    const { requireShipheroWarehouseId } = await import("../config.js");
+    let warehouseId = "";
+    try {
+      warehouseId = requireShipheroWarehouseId();
+    } catch {
+      /* optional */
+    }
+
+    const data = await this.graphql<{
+      products: {
+        data: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          edges: Array<{
+            node: {
+              sku: string;
+              barcode?: string;
+              warehouse_products?: Array<{ warehouse_id: string; on_hand?: number }>;
+            };
+          }>;
+        };
+      };
+    }>(
+      `query ShProductsPage($first: Int, $after: String) {
+        products {
+          data(first: $first, after: $after) {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                sku
+                barcode
+                warehouse_products { warehouse_id on_hand }
+              }
+            }
+          }
+        }
+      }`,
+      { first, after: after ?? undefined }
+    );
+    const conn = data.products.data;
+    return {
+      pageInfo: conn.pageInfo,
+      products: conn.edges.map((e) => {
+        const row = e.node.warehouse_products?.find((w) => w.warehouse_id === warehouseId);
+        return {
+          sku: e.node.sku,
+          barcode: e.node.barcode,
+          onHand: row?.on_hand ?? 0,
+        };
+      }),
+    };
+  }
+
   async createProduct(input: {
     name: string;
     sku: string;
@@ -238,6 +297,25 @@ export class ShipHeroClient {
       }`,
       { data }
     );
+  }
+
+  /** Adjust on-hand to target via inventory_add / inventory_remove delta (non-slotting accounts). */
+  async inventoryAdjustToTarget(
+    sku: string,
+    currentQty: number,
+    targetQty: number,
+    reason: string
+  ): Promise<{ delta: number; action: "add" | "remove" | "none" }> {
+    const current = Math.round(currentQty);
+    const target = Math.round(targetQty);
+    const delta = target - current;
+    if (delta === 0) return { delta: 0, action: "none" };
+    if (delta > 0) {
+      await this.inventoryAdd(sku, delta, reason);
+      return { delta, action: "add" };
+    }
+    await this.inventoryRemove(sku, Math.abs(delta), reason);
+    return { delta, action: "remove" };
   }
 
   async createOrder(input: {

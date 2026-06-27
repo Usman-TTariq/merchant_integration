@@ -103,6 +103,8 @@ export const config = {
     /** Push Korona stock levels to ShipHero on_hand (default on). */
     koronaStock: optional("SYNC_KORONA_STOCK") !== "false",
     stockBatchSize: Number(optional("STOCK_SYNC_BATCH_SIZE") ?? "150"),
+    /** Link Korona products to existing ShipHero SKUs via barcode index / alternate SKU (default on). */
+    linkShipheroByBarcode: optional("SHIPHERO_LINK_BY_BARCODE") !== "false",
   },
   cron: {
     products: optional("CRON_PRODUCTS") ?? "0 */4 * * *",

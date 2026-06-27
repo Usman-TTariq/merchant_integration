@@ -616,3 +616,10 @@ a.link:hover { text-decoration: underline; }
 
 .sh-table tr:last-child td { border-bottom: none; }
 .sh-table tr:hover td { background: var(--surface2); }
+
+.section-subtitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}

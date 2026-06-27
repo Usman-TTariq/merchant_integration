@@ -421,7 +421,11 @@ export async function getKoronaProductsLive(page = 1, search = "", size = 25) {
       name: p.name ?? "",
       deleted: Boolean(p.deleted),
       revision: p.revision ?? null,
-      barcode: p.codes?.find((c) => c.primary)?.code ?? p.codes?.[0]?.code ?? "",
+      barcode: (() => {
+        const rows = p.codes ?? [];
+        const primary = rows.find((c) => c.primary) ?? rows[0];
+        return (primary?.productCode ?? primary?.code ?? "").trim();
+      })(),
       price: p.prices?.[0]?.value ?? null,
     })),
   };

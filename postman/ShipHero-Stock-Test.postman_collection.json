@@ -1,0 +1,85 @@
+{
+  "info": {
+    "name": "ShipHero Stock Sync Test",
+    "description": "Delta stock sync: inventory_add, inventory_remove, and inventory_replace (slotting block check). Copy tokens from .env into collection variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "sh_refresh_token", "value": "PASTE_FROM_ENV_SHIPHERO_REFRESH_TOKEN" },
+    { "key": "sh_access_token", "value": "PASTE_FROM_ENV_SHIPHERO_ACCESS_TOKEN" },
+    { "key": "sh_warehouse_id", "value": "V2FyZWhvdXNlOjM2Mw==" },
+    { "key": "sh_sku", "value": "A38573" }
+  ],
+  "item": [
+    {
+      "name": "1. Auth Refresh",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"{{sh_refresh_token}}\"\n}" },
+        "url": "https://public-api.shiphero.com/auth/refresh"
+      }
+    },
+    {
+      "name": "2. Get Product by SKU",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{sh_access_token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"query ProductBySku($sku: String!) { product(sku: $sku) { request_id data { id sku name warehouse_products { warehouse_id on_hand } } } }\",\n  \"variables\": { \"sku\": \"{{sh_sku}}\" }\n}"
+        },
+        "url": "https://public-api.shiphero.com/graphql"
+      }
+    },
+    {
+      "name": "3. inventory_add (delta sync)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{sh_access_token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"mutation InventoryAdd($data: UpdateInventoryInput!) { inventory_add(data: $data) { request_id } }\",\n  \"variables\": {\n    \"data\": {\n      \"sku\": \"{{sh_sku}}\",\n      \"warehouse_id\": \"{{sh_warehouse_id}}\",\n      \"quantity\": 1,\n      \"reason\": \"Postman delta add test\"\n    }\n  }\n}"
+        },
+        "url": "https://public-api.shiphero.com/graphql"
+      }
+    },
+    {
+      "name": "4. inventory_remove (delta sync)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{sh_access_token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"mutation InventoryRemove($data: UpdateInventoryInput!) { inventory_remove(data: $data) { request_id } }\",\n  \"variables\": {\n    \"data\": {\n      \"sku\": \"{{sh_sku}}\",\n      \"warehouse_id\": \"{{sh_warehouse_id}}\",\n      \"quantity\": 1,\n      \"reason\": \"Postman delta remove test\"\n    }\n  }\n}"
+        },
+        "url": "https://public-api.shiphero.com/graphql"
+      }
+    },
+    {
+      "name": "5. inventory_replace (slotting block - legacy)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{sh_access_token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"mutation InventoryReplace($data: ReplaceInventoryInput!) { inventory_replace(data: $data) { request_id } }\",\n  \"variables\": {\n    \"data\": {\n      \"sku\": \"{{sh_sku}}\",\n      \"warehouse_id\": \"{{sh_warehouse_id}}\",\n      \"quantity\": 9,\n      \"reason\": \"Postman block test\"\n    }\n  }\n}"
+        },
+        "url": "https://public-api.shiphero.com/graphql",
+        "description": "Expected on non-slotting accounts: dynamic slotting error. Sync no longer uses this."
+      }
+    }
+  ]
+}

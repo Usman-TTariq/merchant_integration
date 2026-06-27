@@ -259,18 +259,49 @@ async function loadKorona() {
   }
 }
 
+function mappingRows(rows, showOnHand = false) {
+  return rows.map((r) => {
+    const koronaNum = String(r.korona_product_number ?? "");
+    const shipSku = String(r.shiphero_sku ?? "");
+    const onHand = Number(r.shiphero_on_hand ?? 0);
+    const linked = koronaNum && shipSku && koronaNum !== shipSku;
+    const onHandCell = showOnHand
+      ? onHand > 0
+        ? `<strong>${onHand}</strong>`
+        : `<span class="muted">${onHand}</span>`
+      : null;
+    const base = [
+      esc(r.korona_product_number),
+      linked
+        ? `<strong>${esc(shipSku)}</strong> <span class="muted" style="font-size:0.8rem">linked</span>`
+        : `<strong>${esc(shipSku)}</strong>`,
+    ];
+    if (showOnHand) base.push(onHandCell);
+    base.push(esc(r.korona_revision ?? ""), fmtTime(r.updated_at), `<code>${esc(r.korona_product_id)}</code>`);
+    return base;
+  });
+}
+
 async function loadMappings() {
   const q = state.productSearch ? `&search=${encodeURIComponent(state.productSearch)}` : "";
-  const data = await api(`/api/products?page=${state.mappingsPage}&limit=50${q}`);
+  const [linkedData, data] = await Promise.all([
+    api(`/api/products?linked=1&limit=50${q}`),
+    api(`/api/products?page=${state.mappingsPage}&limit=50${q}`),
+  ]);
+  const hint = document.getElementById("mappings-hint");
+  if (hint) {
+    const n = linkedData.total ?? 0;
+    hint.textContent = n
+      ? `${n} Korona product(s) linked to ShipHero web SKU — sorted by on hand (stocked first). Search: 0047640, 10655-1`
+      : "No barcode links yet. Run: npm run cache:korona-barcodes → index:shiphero-barcodes → link:products";
+  }
+  document.getElementById("mappings-linked-table").innerHTML = table(
+    ["Korona #", "ShipHero SKU", "On hand", "Revision", "Updated", "Korona ID"],
+    mappingRows(linkedData.rows ?? [], true)
+  );
   document.getElementById("mappings-table").innerHTML = table(
     ["Korona #", "ShipHero SKU", "Revision", "Updated", "Korona ID"],
-    data.rows.map((r) => [
-      esc(r.korona_product_number),
-      `<strong>${esc(r.shiphero_sku)}</strong>`,
-      esc(r.korona_revision ?? ""),
-      fmtTime(r.updated_at),
-      `<code>${esc(r.korona_product_id)}</code>`,
-    ])
+    mappingRows(data.rows ?? [])
   );
   pager("mappings-pager", data.page, data.total, data.limit, (p) => {
     state.mappingsPage = p;
@@ -742,7 +773,11 @@ async function loadShipheroProducts() {
     if (state.shProductsSearch) params.set("search", state.shProductsSearch);
 
     const data = await api(`/api/shiphero/products?${params}`);
-    const products = data.products ?? [];
+    const products = (data.products ?? []).slice().sort(
+      (a, b) =>
+        (b.onHand ?? 0) - (a.onHand ?? 0) ||
+        String(a.sku ?? "").localeCompare(String(b.sku ?? ""), undefined, { sensitivity: "base" })
+    );
     hint.textContent = products.length ? "" : "No products found for this search.";
 
     document.getElementById("sh-products-table").innerHTML = table(
@@ -817,6 +852,7 @@ async function refreshAll() {
 document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.tab = btn.dataset.tab;
+    if (state.tab === "mappings") state.mappingsPage = 1;
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === btn));
     document.querySelectorAll(".tab-panel").forEach((p) => {
       p.classList.toggle("active", p.id === `tab-${state.tab}`);
