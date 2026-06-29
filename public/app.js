@@ -709,6 +709,20 @@ async function printShipheroLabel(orderId, btn) {
   }
 }
 
+function formatShipheroPagerText(currentPage, hasNextPage, pagination, filtered) {
+  const estPages = pagination?.estimatedTotalPages;
+  let pageText = `Page ${currentPage}`;
+  if (estPages && !filtered) {
+    pageText += ` of ~${estPages.toLocaleString()}`;
+    if (hasNextPage) pageText += "+";
+  } else if (hasNextPage) {
+    pageText += " · more available";
+  } else if (currentPage > 1) {
+    pageText += " · last page";
+  }
+  return pageText;
+}
+
 async function loadShipheroOrders() {
   const hint = document.getElementById("sh-orders-hint");
   hint.textContent = "Loading orders…";
@@ -741,13 +755,15 @@ async function loadShipheroOrders() {
       })
     );
 
-    // cursor-based pager
     const { hasNextPage, endCursor } = data.pageInfo ?? {};
     const pagerEl = document.getElementById("sh-orders-pager");
     const histLen = state.shOrdersHistory.length;
+    const currentPage = histLen + 1;
+    const filtered = Boolean(state.shOrdersSearch || state.shOrdersStatus);
+    const pageText = formatShipheroPagerText(currentPage, hasNextPage, data.pagination, filtered);
     pagerEl.innerHTML = `
       ${histLen > 0 ? `<button type="button" id="sh-orders-prev">Prev</button>` : ""}
-      <span class="muted" style="font-size:0.85rem">Page ${histLen + 1}</span>
+      <span class="muted" style="font-size:0.85rem">${pageText}</span>
       ${hasNextPage ? `<button type="button" id="sh-orders-next">Next</button>` : ""}
     `;
     pagerEl.querySelector("#sh-orders-prev")?.addEventListener("click", () => {
@@ -797,9 +813,16 @@ async function loadShipheroProducts() {
     const { hasNextPage, endCursor } = data.pageInfo ?? {};
     const pagerEl = document.getElementById("sh-products-pager");
     const histLen = state.shProductsHistory.length;
+    const currentPage = histLen + 1;
+    const pageText = formatShipheroPagerText(
+      currentPage,
+      hasNextPage,
+      data.pagination,
+      Boolean(state.shProductsSearch)
+    );
     pagerEl.innerHTML = `
       ${histLen > 0 ? `<button type="button" id="sh-products-prev">Prev</button>` : ""}
-      <span class="muted" style="font-size:0.85rem">Page ${histLen + 1}</span>
+      <span class="muted" style="font-size:0.85rem">${pageText}</span>
       ${hasNextPage ? `<button type="button" id="sh-products-next">Next</button>` : ""}
     `;
     pagerEl.querySelector("#sh-products-prev")?.addEventListener("click", () => {
@@ -817,7 +840,11 @@ async function loadShipheroProducts() {
 }
 
 async function loadShiphero() {
-  await Promise.all([loadShipheroOrders(), loadShipheroProducts()]);
+  await loadShipheroOrders();
+}
+
+async function loadShipheroProductsTab() {
+  await loadShipheroProducts();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -831,6 +858,7 @@ async function loadActiveTab() {
     if (state.tab === "receipts") await loadReceipts();
     if (state.tab === "reports") await loadReports();
     if (state.tab === "shiphero") await loadShiphero();
+    if (state.tab === "shiphero-products") await loadShipheroProductsTab();
     if (state.tab === "logs") await loadLogs();
   } catch (err) {
     console.error(err);
@@ -1031,14 +1059,14 @@ document.getElementById("sh-products-search").addEventListener("input", (e) => {
   state.shProductsHistory = [];
   clearTimeout(window._shProductsTimer);
   window._shProductsTimer = setTimeout(() => {
-    if (state.tab === "shiphero") loadShipheroProducts();
+    if (state.tab === "shiphero-products") loadShipheroProducts();
   }, 400);
 });
 
 document.getElementById("sh-products-refresh").addEventListener("click", () => {
   state.shProductsAfter = null;
   state.shProductsHistory = [];
-  if (state.tab === "shiphero") loadShipheroProducts();
+  if (state.tab === "shiphero-products") loadShipheroProducts();
 });
 
 // ShipHero Inventory CSV: set default date range (last 7 days)

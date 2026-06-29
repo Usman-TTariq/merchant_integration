@@ -44,7 +44,8 @@
       <button class="tab" data-tab="orders" type="button">Orders</button>
       <button class="tab" data-tab="receipts" type="button">Receipts</button>
       <button class="tab" data-tab="reports" type="button">Reports</button>
-      <button class="tab" data-tab="shiphero" type="button">ShipHero</button>
+      <button class="tab" data-tab="shiphero" type="button">ShipHero Orders</button>
+      <button class="tab" data-tab="shiphero-products" type="button">ShipHero Products</button>
       <button class="tab" data-tab="logs" type="button">Logs</button>
     </nav>
 
@@ -179,7 +180,6 @@
 
       <section id="tab-shiphero" class="tab-panel">
 
-        <!-- ShipHero Orders -->
         <div class="sh-section-header">
           <h2>Orders</h2>
           <div class="sh-controls">
@@ -196,12 +196,14 @@
           </div>
         </div>
         <p id="sh-orders-hint" class="sh-status-msg"></p>
-        <p class="hint">Pending orders: use <strong>Print Label</strong> for genericlabel (requires warehouse address in ShipHero).</p>
+        <p class="hint">Live from ShipHero API. ShipHero does not return an exact total; page count is <strong>estimated</strong>. Pending orders: use <strong>Print Label</strong> for genericlabel (requires warehouse address in ShipHero).</p>
         <div id="sh-orders-table" class="table-wrap sh-table"></div>
         <div class="pager" id="sh-orders-pager"></div>
 
-        <!-- ShipHero Products -->
-        <div class="sh-section-header section-gap">
+      </section>
+
+      <section id="tab-shiphero-products" class="tab-panel">
+        <div class="sh-section-header">
           <h2>Products</h2>
           <div class="sh-controls">
             <input id="sh-products-search" class="input search-input" placeholder="Search SKU or name…" type="search" />
@@ -209,6 +211,7 @@
           </div>
         </div>
         <p id="sh-products-hint" class="sh-status-msg"></p>
+        <p class="hint">Live from ShipHero API — sorted by <strong>on hand</strong> on this page. ShipHero does not return an exact total; page count is <strong>estimated</strong> (~300k products). Use search for a specific SKU.</p>
         <div id="sh-products-table" class="table-wrap sh-table"></div>
         <div class="pager" id="sh-products-pager"></div>
 
@@ -236,6 +239,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=19" type="module"></script>
+  <script src="/app.js?v=22" type="module"></script>
 </body>
 </html>

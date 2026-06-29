@@ -506,7 +506,28 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         }
         if (statusFilter) orders = orders.filter((o) => (o.fulfillment_status ?? "").toLowerCase() === statusFilter);
 
-        return sendJson(res, 200, { orders, pageInfo: conn.pageInfo });
+        const { getCursor } = await import("../db.js");
+        const indexedEstimate = Number((await getCursor("shiphero_orders_estimated_total")) || "0");
+        const defaultEstimate = Number(process.env.SHIPHERO_ORDERS_ESTIMATE ?? "50000");
+        const estimatedTotalOrders =
+          indexedEstimate > 0 ? indexedEstimate : defaultEstimate > 0 ? defaultEstimate : null;
+        const hasFilter = Boolean(search || statusFilter);
+        const estimatedTotalPages =
+          estimatedTotalOrders && !hasFilter ? Math.ceil(estimatedTotalOrders / first) : null;
+
+        return sendJson(res, 200, {
+          orders,
+          pageInfo: conn.pageInfo,
+          pagination: hasFilter
+            ? null
+            : {
+                pageSize: first,
+                estimatedTotalOrders,
+                estimatedTotalPages,
+                exact: false,
+                source: indexedEstimate > 0 ? "index" : "default",
+              },
+        });
       } catch (err) {
         return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }
@@ -680,7 +701,27 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
             (a.sku ?? "").localeCompare(b.sku ?? "", undefined, { sensitivity: "base" })
         );
 
-        return sendJson(res, 200, { products, pageInfo: search ? { hasNextPage: false, endCursor: null } : conn.pageInfo });
+        const { getCursor } = await import("../db.js");
+        const indexedEstimate = Number((await getCursor("shiphero_catalog_estimated_products")) || "0");
+        const defaultEstimate = Number(process.env.SHIPHERO_CATALOG_ESTIMATE ?? "301000");
+        const estimatedTotalProducts =
+          indexedEstimate > 0 ? indexedEstimate : defaultEstimate > 0 ? defaultEstimate : null;
+        const estimatedTotalPages =
+          estimatedTotalProducts && !search ? Math.ceil(estimatedTotalProducts / first) : null;
+
+        return sendJson(res, 200, {
+          products,
+          pageInfo: search ? { hasNextPage: false, endCursor: null } : conn.pageInfo,
+          pagination: search
+            ? null
+            : {
+                pageSize: first,
+                estimatedTotalProducts,
+                estimatedTotalPages,
+                exact: false,
+                source: indexedEstimate > 0 ? "index" : "default",
+              },
+        });
       } catch (err) {
         return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
       }

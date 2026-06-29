@@ -19,6 +19,8 @@ import { sanitizeSku } from "../utils/sku.js";
 
 const KORONA_CURSOR = "korona_barcode_cache_page";
 const SHIPHERO_CURSOR = "shiphero_barcode_index_cursor";
+const SHIPHERO_CATALOG_PAGE_COUNT = "shiphero_catalog_page_count";
+const SHIPHERO_CATALOG_ESTIMATE = "shiphero_catalog_estimated_products";
 
 export type BarcodeLinkOptions = {
   koronaPages?: number;
@@ -112,12 +114,15 @@ export async function indexShipheroBarcodesChunk(opts: BarcodeLinkOptions = {}):
   const shiphero = new ShipHeroClient();
 
   let cursor = (await getCursor(SHIPHERO_CURSOR)) || null;
+  let apiPage = Number((await getCursor(SHIPHERO_CATALOG_PAGE_COUNT)) || "0");
+  if (!cursor) apiPage = 0;
   let pages = 0;
   let indexed = 0;
   let hasNext = true;
 
   while (hasNext && pages < pagesArg) {
     const page = await shiphero.listProductsPage(pageSize, cursor);
+    apiPage++;
     const batch = page.products
       .filter((p) => p.barcode?.trim() && p.sku?.trim())
       .map((p) => ({
@@ -132,7 +137,14 @@ export async function indexShipheroBarcodesChunk(opts: BarcodeLinkOptions = {}):
     cursor = page.pageInfo.endCursor;
     pages++;
     if (cursor) await setCursor(SHIPHERO_CURSOR, cursor);
-    if (!hasNext) await setCursor(SHIPHERO_CURSOR, "");
+    if (!hasNext) {
+      await setCursor(SHIPHERO_CURSOR, "");
+      const estimated = Math.max(0, (apiPage - 1) * pageSize + page.products.length);
+      await setCursor(SHIPHERO_CATALOG_ESTIMATE, String(estimated));
+      await setCursor(SHIPHERO_CATALOG_PAGE_COUNT, "0");
+    } else {
+      await setCursor(SHIPHERO_CATALOG_PAGE_COUNT, String(apiPage));
+    }
   }
 
   const total = await countShipheroBarcodeIndex();
