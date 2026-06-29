@@ -232,6 +232,41 @@ export async function getShipheroOnHandForSku(sku: string): Promise<number> {
   return row?.on_hand ?? 0;
 }
 
+export async function loadKoronaBarcodesMap(): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  const rows = sqlite()
+    .prepare("SELECT korona_product_id, barcodes FROM korona_product_barcodes")
+    .all() as Array<{ korona_product_id: string; barcodes: string }>;
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.barcodes) as unknown;
+      const barcodes = Array.isArray(parsed)
+        ? parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        : [];
+      if (barcodes.length) map.set(row.korona_product_id, barcodes);
+    } catch {
+      /* ignore */
+    }
+  }
+  return map;
+}
+
+export async function loadShipheroBarcodeIndexByBarcode(): Promise<
+  Map<string, Array<{ barcode: string; shipheroSku: string; onHand: number }>>
+> {
+  const map = new Map<string, Array<{ barcode: string; shipheroSku: string; onHand: number }>>();
+  const rows = sqlite()
+    .prepare("SELECT barcode, shiphero_sku, on_hand FROM shiphero_barcode_index")
+    .all() as Array<{ barcode: string; shiphero_sku: string; on_hand: number }>;
+  for (const row of rows) {
+    const hit = { barcode: row.barcode, shipheroSku: row.shiphero_sku, onHand: row.on_hand ?? 0 };
+    const list = map.get(row.barcode) ?? [];
+    list.push(hit);
+    map.set(row.barcode, list);
+  }
+  return map;
+}
+
 export async function listProductMappingsForRelink(): Promise<
   Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }>
 > {

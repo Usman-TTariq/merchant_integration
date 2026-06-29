@@ -4,7 +4,8 @@ import {
   countKoronaBarcodesCache,
   countShipheroBarcodeIndex,
   getCursor,
-  getKoronaBarcodes,
+  loadKoronaBarcodesMap,
+  loadShipheroBarcodeIndexByBarcode,
   listProductMappingsForRelink,
   logSync,
   setCursor,
@@ -13,7 +14,7 @@ import {
   upsertShipheroBarcodeIndex,
 } from "../db.js";
 import { koronaProductCodes } from "../utils/korona-codes.js";
-import { resolveShipheroSkuFromBarcodeIndex } from "../utils/resolve-shiphero-product.js";
+import { resolveShipheroSkuFromPreloadedIndex } from "../utils/resolve-shiphero-product.js";
 import { sanitizeSku } from "../utils/sku.js";
 
 const KORONA_CURSOR = "korona_barcode_cache_page";
@@ -150,6 +151,13 @@ export async function relinkProductMappingsChunk(): Promise<{
   unchanged: number;
 }> {
   const mappings = await listProductMappingsForRelink();
+  const koronaByProduct = await loadKoronaBarcodesMap();
+  const indexByBarcode = await loadShipheroBarcodeIndexByBarcode();
+  await logSync(
+    "products",
+    "info",
+    `Relink start: mappings=${mappings.length} korona_cache=${koronaByProduct.size} barcode_index=${indexByBarcode.size}`
+  );
   let scanned = 0;
   let relinked = 0;
   let unchanged = 0;
@@ -166,14 +174,14 @@ export async function relinkProductMappingsChunk(): Promise<{
 
   for (const mapping of mappings) {
     scanned++;
-    const barcodes = await getKoronaBarcodes(mapping.koronaProductId);
+    const barcodes = koronaByProduct.get(mapping.koronaProductId) ?? [];
     if (!barcodes.length) {
       unchanged++;
       continue;
     }
 
     const createSku = sanitizeSku(mapping.koronaProductNumber ?? mapping.koronaProductId);
-    const resolved = await resolveShipheroSkuFromBarcodeIndex(barcodes, createSku);
+    const resolved = resolveShipheroSkuFromPreloadedIndex(barcodes, createSku, indexByBarcode);
     if (!resolved || mapping.shipheroSku === resolved.shipheroSku) {
       unchanged++;
       continue;

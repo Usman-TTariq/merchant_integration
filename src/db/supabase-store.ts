@@ -180,15 +180,89 @@ export async function getShipheroOnHandForSku(sku: string): Promise<number> {
 export async function listProductMappingsForRelink(): Promise<
   Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }>
 > {
-  const { data, error } = await getSupabase()
-    .from("product_mappings")
-    .select("korona_product_id, korona_product_number, shiphero_sku");
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => ({
-    koronaProductId: String(row.korona_product_id),
-    koronaProductNumber: row.korona_product_number ? String(row.korona_product_number) : null,
-    shipheroSku: String(row.shiphero_sku),
-  }));
+  const pageSize = 1000;
+  let from = 0;
+  const all: Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }> = [];
+
+  while (true) {
+    const { data, error } = await getSupabase()
+      .from("product_mappings")
+      .select("korona_product_id, korona_product_number, shiphero_sku")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = (data ?? []).map((row) => ({
+      koronaProductId: String(row.korona_product_id),
+      koronaProductNumber: row.korona_product_number ? String(row.korona_product_number) : null,
+      shipheroSku: String(row.shiphero_sku),
+    }));
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return all;
+}
+
+export async function loadKoronaBarcodesMap(): Promise<Map<string, string[]>> {
+  const pageSize = 1000;
+  let from = 0;
+  const map = new Map<string, string[]>();
+
+  while (true) {
+    const { data, error } = await getSupabase()
+      .from("korona_product_barcodes")
+      .select("korona_product_id, barcodes")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = data ?? [];
+    for (const row of chunk) {
+      try {
+        const parsed = JSON.parse(String(row.barcodes)) as unknown;
+        const barcodes = Array.isArray(parsed)
+          ? parsed.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          : [];
+        if (barcodes.length) map.set(String(row.korona_product_id), barcodes);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return map;
+}
+
+export async function loadShipheroBarcodeIndexByBarcode(): Promise<
+  Map<string, Array<{ barcode: string; shipheroSku: string; onHand: number }>>
+> {
+  const pageSize = 1000;
+  let from = 0;
+  const map = new Map<string, Array<{ barcode: string; shipheroSku: string; onHand: number }>>();
+
+  while (true) {
+    const { data, error } = await getSupabase()
+      .from("shiphero_barcode_index")
+      .select("barcode, shiphero_sku, on_hand")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = data ?? [];
+    for (const row of chunk) {
+      const barcode = String(row.barcode);
+      const hit = {
+        barcode,
+        shipheroSku: String(row.shiphero_sku),
+        onHand: Number(row.on_hand ?? 0),
+      };
+      const list = map.get(barcode) ?? [];
+      list.push(hit);
+      map.set(barcode, list);
+    }
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return map;
 }
 
 export async function countShipheroBarcodeIndex(): Promise<number> {

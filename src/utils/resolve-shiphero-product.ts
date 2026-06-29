@@ -128,3 +128,31 @@ export async function resolveShipheroSkuFromBarcodeIndex(
   if (!best) return null;
   return { shipheroSku: best.product.sku, matchedBy: best.matchedBy, onHand: best.onHand };
 }
+
+/** In-memory barcode index lookup (no per-row DB queries). */
+export function resolveShipheroSkuFromPreloadedIndex(
+  barcodes: string[],
+  createSku: string,
+  indexByBarcode: Map<string, Array<{ barcode: string; shipheroSku: string; onHand: number }>>
+): { shipheroSku: string; matchedBy: string; onHand: number } | null {
+  const matches: ProductMatch[] = [];
+  const seen = new Set<string>();
+
+  for (const bc of barcodes) {
+    const normalized = sanitizeSku(bc);
+    if (!normalized) continue;
+    for (const hit of indexByBarcode.get(normalized) ?? []) {
+      if (seen.has(hit.shipheroSku)) continue;
+      seen.add(hit.shipheroSku);
+      matches.push({
+        product: { sku: hit.shipheroSku } as ShipHeroProduct,
+        matchedBy: `barcode:${hit.barcode}`,
+        onHand: hit.onHand,
+      });
+    }
+  }
+
+  const best = pickBestMatch(matches, createSku);
+  if (!best) return null;
+  return { shipheroSku: best.product.sku, matchedBy: best.matchedBy, onHand: best.onHand };
+}

@@ -37,7 +37,7 @@ async function hitCron(name: string): Promise<void> {
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { Authorization: `Bearer ${secret}` },
-      signal: AbortSignal.timeout(300_000),
+      signal: AbortSignal.timeout(600_000),
     });
     const body = await res.text();
     console.log("Status:", res.status);
