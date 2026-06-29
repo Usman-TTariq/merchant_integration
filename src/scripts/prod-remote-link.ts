@@ -39,7 +39,12 @@ async function hitCron(name: string): Promise<void> {
   } catch {
     console.log(body);
   }
-  if (!res.ok) throw new Error(`${name} failed (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(`${name} failed (401): CRON_SECRET in .env must match Vercel → Settings → Environment Variables`);
+    }
+    throw new Error(`${name} failed (${res.status})`);
+  }
 }
 
 console.log(`=== Remote production link: ${baseUrl} ===\n`);

@@ -27,3 +27,7 @@ if (envCode !== 0) {
 }
 
 console.log("\nDeploy check passed. Run: npx vercel --prod");
+console.log("After deploy:");
+console.log("  1. Supabase SQL Editor → run supabase/migrate-barcode-index.sql");
+console.log("  2. Copy CRON_SECRET from Vercel env into .env");
+console.log("  3. npm run prod:remote-link -- --url https://merchantshiphero.com");
