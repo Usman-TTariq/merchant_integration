@@ -15,6 +15,7 @@ import { isSupabaseConfigured } from "../db/supabase-client.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const schemaPath = path.resolve(__dirname, "../../supabase/schema.sql");
 const migratePath = path.resolve(__dirname, "../../supabase/migrate-barcode-index.sql");
+const fixProdPath = path.resolve(__dirname, "../../supabase/fix-production-barcode.sql");
 
 console.log("=== Supabase migration ===\n");
 console.log("Provider:", getDatabaseProvider());
@@ -24,7 +25,7 @@ if (!config.database.postgresUrl) {
   console.log("\nManual steps:");
   console.log("  1. Supabase Dashboard → SQL Editor");
   console.log("  2. Run:", schemaPath);
-  console.log("  3. Then run:", migratePath);
+  console.log("  3. Then run:", fixProdPath);
   if (isSupabaseConfigured()) {
     try {
       await verifySupabaseTables();
@@ -43,9 +44,12 @@ await client.connect();
 
 const schemaSql = fs.readFileSync(schemaPath, "utf8");
 const migrateSql = fs.readFileSync(migratePath, "utf8");
+const fixProdSql = fs.readFileSync(fixProdPath, "utf8");
 
 console.log("Applying schema.sql…");
 await client.query(schemaSql);
+console.log("Applying fix-production-barcode.sql…");
+await client.query(fixProdSql);
 console.log("Applying migrate-barcode-index.sql…");
 await client.query(migrateSql);
 await client.end();

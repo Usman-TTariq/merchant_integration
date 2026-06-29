@@ -24,22 +24,37 @@ if (!valid.includes(job)) {
   process.exit(1);
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function hitCron(name: string): Promise<void> {
   const endpoint = `${baseUrl}/api/cron/${name}`;
-  console.log(`POST ${endpoint}`);
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${secret}` },
-    signal: AbortSignal.timeout(300_000),
-  });
-  const body = await res.text();
-  console.log("Status:", res.status);
-  try {
-    console.log(JSON.parse(body));
-  } catch {
-    console.log(body);
-  }
-  if (!res.ok) {
+  const maxAttempts = 8;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`POST ${endpoint}${attempt > 1 ? ` (retry ${attempt}/${maxAttempts})` : ""}`);
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(300_000),
+    });
+    const body = await res.text();
+    console.log("Status:", res.status);
+    try {
+      console.log(JSON.parse(body));
+    } catch {
+      console.log(body);
+    }
+
+    if (res.ok) return;
+
+    if (res.status === 409 && attempt < maxAttempts) {
+      console.log("Job busy — waiting 45s before retry…");
+      await sleep(45_000);
+      continue;
+    }
+
     if (res.status === 401) {
       throw new Error(`${name} failed (401): CRON_SECRET in .env must match Vercel → Settings → Environment Variables`);
     }

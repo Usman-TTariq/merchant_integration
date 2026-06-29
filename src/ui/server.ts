@@ -8,6 +8,7 @@ import { deleteErrorLogs, deleteWarningLogs, initDatabase, logSync } from "../db
 import { runSyncJob, type SyncJob } from "../sync/run-job.js";
 import { runBarcodeJob, type BarcodeJob } from "../sync/run-barcode-job.js";
 import { isCronAuthorized } from "./cron-auth.js";
+import { jobLockStatus, releaseJobLock, tryAcquireJobLock } from "./job-lock.js";
 import {
   getCursors,
   getLogs,
@@ -43,7 +44,14 @@ const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
   : path.resolve(__dirname, "../../public");
 const PORT = Number(process.env.DASHBOARD_PORT ?? "3847");
 
-let syncRunning = false;
+function jobBusyResponse(job: string, res: http.ServerResponse): void {
+  sendJson(res, 409, {
+    error: "Job already running",
+    job,
+    running: jobLockStatus(),
+    hint: "Wait for the current run to finish, or retry in 1–2 minutes.",
+  });
+}
 
 // ─── Simple in-memory cache ───────────────────────────────────────────────────
 interface CacheEntry<T> {
@@ -216,10 +224,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const syncJobs = ["products", "inventory", "orders", "stock"] as const;
 
       if (barcodeJobs.includes(job as (typeof barcodeJobs)[number])) {
-        if (syncRunning) {
-          return sendJson(res, 409, { error: "Sync already running" });
+        if (!tryAcquireJobLock(job)) {
+          jobBusyResponse(job, res);
+          return;
         }
-        syncRunning = true;
         try {
           await logSync("cron", "info", `Cron barcode job started: ${job}`);
           const results = await runBarcodeJob(job as BarcodeJob);
@@ -229,18 +237,18 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
           await logSync("cron", "error", `Cron barcode job failed (${job}): ${err instanceof Error ? err.message : String(err)}`);
           return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
         } finally {
-          syncRunning = false;
+          releaseJobLock(job);
         }
       }
 
       if (!syncJobs.includes(job as (typeof syncJobs)[number])) {
         return sendJson(res, 404, { error: "Unknown cron job" });
       }
-      if (syncRunning) {
-        return sendJson(res, 409, { error: "Sync already running" });
+      if (!tryAcquireJobLock(job)) {
+        jobBusyResponse(job, res);
+        return;
       }
 
-      syncRunning = true;
       try {
         await logSync("cron", "info", `Cron sync started: ${job}`);
         const results = await runSyncJob(job as SyncJob);
@@ -250,7 +258,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         await logSync("cron", "error", `Cron sync failed (${job}): ${err instanceof Error ? err.message : String(err)}`);
         return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
       } finally {
-        syncRunning = false;
+        releaseJobLock(job);
       }
     }
 
@@ -720,10 +728,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const syncJobs = ["products", "inventory", "orders", "stock", "all"] as const;
 
       if (barcodeJobs.includes(job as (typeof barcodeJobs)[number])) {
-        if (syncRunning) {
-          return sendJson(res, 409, { error: "Sync already running" });
+        if (!tryAcquireJobLock(job)) {
+          jobBusyResponse(job, res);
+          return;
         }
-        syncRunning = true;
         sendJson(res, 202, { ok: true, job, message: "Barcode job started" });
         void (async () => {
           try {
@@ -737,7 +745,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
               `Manual barcode job failed (${job}): ${err instanceof Error ? err.message : String(err)}`
             );
           } finally {
-            syncRunning = false;
+            releaseJobLock(job);
           }
         })();
         return;
@@ -746,11 +754,11 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       if (!syncJobs.includes(job as (typeof syncJobs)[number])) {
         return sendJson(res, 400, { error: "Unknown sync job" });
       }
-      if (syncRunning) {
-        return sendJson(res, 409, { error: "Sync already running" });
+      if (!tryAcquireJobLock(job)) {
+        jobBusyResponse(job, res);
+        return;
       }
 
-      syncRunning = true;
       sendJson(res, 202, { ok: true, job, message: "Sync started" });
 
       void (async () => {
@@ -765,7 +773,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
             `Manual sync failed (${job}): ${err instanceof Error ? err.message : String(err)}`
           );
         } finally {
-          syncRunning = false;
+          releaseJobLock(job);
         }
       })();
       return;
