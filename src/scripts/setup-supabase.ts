@@ -31,7 +31,8 @@ if (config.database.postgresUrl) {
 } else {
   console.log("\nIf tables are missing, run this SQL in Supabase Dashboard → SQL Editor:");
   console.log(`  File: supabase/schema.sql`);
-  console.log("\nOr set DATABASE_URL to your Postgres connection string and re-run npm run db:setup");
+  console.log(`  Then: supabase/migrate-barcode-index.sql`);
+  console.log("\nOr set DATABASE_URL to your Postgres connection string and run: npm run db:migrate");
 }
 
 try {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { deleteErrorLogs, deleteWarningLogs, initDatabase, logSync } from "../db.js";
 import { runSyncJob, type SyncJob } from "../sync/run-job.js";
+import { runBarcodeJob, type BarcodeJob } from "../sync/run-barcode-job.js";
 import { isCronAuthorized } from "./cron-auth.js";
 import {
   getCursors,
@@ -210,8 +211,29 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         return sendJson(res, 401, { error: "Unauthorized cron request" });
       }
 
-      const job = url.pathname.replace("/api/cron/", "") as SyncJob;
-      if (!["products", "inventory", "orders", "stock"].includes(job)) {
+      const job = url.pathname.replace("/api/cron/", "");
+      const barcodeJobs = ["barcode-cache", "barcode-index", "link", "barcode-link"] as const;
+      const syncJobs = ["products", "inventory", "orders", "stock"] as const;
+
+      if (barcodeJobs.includes(job as (typeof barcodeJobs)[number])) {
+        if (syncRunning) {
+          return sendJson(res, 409, { error: "Sync already running" });
+        }
+        syncRunning = true;
+        try {
+          await logSync("cron", "info", `Cron barcode job started: ${job}`);
+          const results = await runBarcodeJob(job as BarcodeJob);
+          await logSync("cron", "info", `Cron barcode job finished: ${job} ${JSON.stringify(results)}`);
+          return sendJson(res, 200, { ok: true, job, results });
+        } catch (err) {
+          await logSync("cron", "error", `Cron barcode job failed (${job}): ${err instanceof Error ? err.message : String(err)}`);
+          return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        } finally {
+          syncRunning = false;
+        }
+      }
+
+      if (!syncJobs.includes(job as (typeof syncJobs)[number])) {
         return sendJson(res, 404, { error: "Unknown cron job" });
       }
       if (syncRunning) {
@@ -221,7 +243,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       syncRunning = true;
       try {
         await logSync("cron", "info", `Cron sync started: ${job}`);
-        const results = await runSyncJob(job);
+        const results = await runSyncJob(job as SyncJob);
         await logSync("cron", "info", `Cron sync finished: ${job} ${JSON.stringify(results)}`);
         return sendJson(res, 200, { ok: true, job, results });
       } catch (err) {
@@ -694,7 +716,34 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
     if (req.method === "POST" && url.pathname.startsWith("/api/sync/")) {
       const job = url.pathname.replace("/api/sync/", "");
-      if (!["products", "inventory", "orders", "stock", "all"].includes(job)) {
+      const barcodeJobs = ["barcode-cache", "barcode-index", "link", "barcode-link"] as const;
+      const syncJobs = ["products", "inventory", "orders", "stock", "all"] as const;
+
+      if (barcodeJobs.includes(job as (typeof barcodeJobs)[number])) {
+        if (syncRunning) {
+          return sendJson(res, 409, { error: "Sync already running" });
+        }
+        syncRunning = true;
+        sendJson(res, 202, { ok: true, job, message: "Barcode job started" });
+        void (async () => {
+          try {
+            await logSync("dashboard", "info", `Manual barcode job started: ${job}`);
+            const results = await runBarcodeJob(job as BarcodeJob);
+            await logSync("dashboard", "info", `Manual barcode job finished: ${job} ${JSON.stringify(results)}`);
+          } catch (err) {
+            await logSync(
+              "dashboard",
+              "error",
+              `Manual barcode job failed (${job}): ${err instanceof Error ? err.message : String(err)}`
+            );
+          } finally {
+            syncRunning = false;
+          }
+        })();
+        return;
+      }
+
+      if (!syncJobs.includes(job as (typeof syncJobs)[number])) {
         return sendJson(res, 400, { error: "Unknown sync job" });
       }
       if (syncRunning) {

@@ -112,9 +112,14 @@ Vercel sends `Authorization: Bearer <CRON_SECRET>` (or `x-vercel-cron: 1` on pla
 After first deploy:
 
 ```bash
-npm run prod:bootstrap     # sync products + link R-* orders (on prod DB)
-# OR trigger via dashboard Sync Products + Sync Orders
+npm run db:migrate          # if DATABASE_URL set; else run SQL in Supabase Dashboard
+npm run prod:bootstrap      # sync products + orders + first barcode link chunk
+npm run prod:link -- --cache-pages=20 --index-pages=100   # repeat until cache/index complete
+# OR trigger on live Vercel (after deploy):
+npm run prod:remote-link -- --url https://merchantshiphero.com
 ```
+
+**Why live differs from local:** local uses SQLite (`data/sync.db`); production uses Supabase. Barcode linking must run against production DB (scripts above or daily crons: `barcode-cache`, `barcode-index`, `link`).
 
 Full stock backfill (~11k SKUs): stock cron rotates 150 SKUs every 15 min (~19.5 h for one full pass), or run **Sync Stock** repeatedly until cursor wraps.
 
@@ -196,7 +201,10 @@ node dist/cli.js products
 |--------|---------|
 | `env:verify` | Check required env vars (`--production` for Vercel) |
 | `vercel:env-checklist` | List vars to set in Vercel |
-| `prod:bootstrap` | One-time products + orders on production DB |
+| `prod:bootstrap` | One-time products + orders + barcode link on production DB |
+| `prod:link` | Run barcode cache/index/link against Supabase (local CLI) |
+| `prod:remote-link` | Trigger production `/api/cron/barcode-*` jobs on Vercel |
+| `db:migrate` | Apply schema + barcode migration via DATABASE_URL |
 | `cron:test` | POST to `/api/cron/*` with `CRON_SECRET` |
 | `verify:sync` | Sample Korona vs ShipHero qty compare |
 | `orders:backfill` | Link existing ShipHero `R-*` orders locally |

@@ -21,7 +21,7 @@ if (!secret) {
   process.exit(1);
 }
 
-const valid = ["products", "inventory", "orders", "stock", "all"];
+const valid = ["products", "inventory", "orders", "stock", "all", "barcode-cache", "barcode-index", "link", "barcode-link"];
 if (!valid.includes(job)) {
   console.error(`Invalid job. Use one of: ${valid.join(", ")}`);
   process.exit(1);

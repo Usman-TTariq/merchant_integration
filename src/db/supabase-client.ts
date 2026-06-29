@@ -28,10 +28,13 @@ export function isSupabaseConfigured(): boolean {
 
 export async function verifySupabaseTables(): Promise<void> {
   const sb = getSupabase();
-  const { error } = await sb.from("sync_cursors").select("key").limit(1);
-  if (error) {
-    throw new Error(
-      `Supabase tables missing or inaccessible: ${error.message}. Run supabase/schema.sql in the SQL Editor, then npm run db:setup`
-    );
+  const tables = ["sync_cursors", "product_mappings", "shiphero_barcode_index", "korona_product_barcodes"] as const;
+  for (const table of tables) {
+    const { error } = await sb.from(table).select("*").limit(1);
+    if (error) {
+      throw new Error(
+        `Supabase table "${table}" missing or inaccessible: ${error.message}. Run supabase/schema.sql and supabase/migrate-barcode-index.sql in SQL Editor, then npm run db:migrate`
+      );
+    }
   }
 }
