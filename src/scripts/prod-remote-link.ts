@@ -55,6 +55,12 @@ async function hitCron(name: string): Promise<void> {
       continue;
     }
 
+    if ((res.status === 504 || res.status === 502) && attempt < maxAttempts) {
+      console.log(`Gateway ${res.status} — job may still be running; waiting 60s…`);
+      await sleep(60_000);
+      continue;
+    }
+
     if (res.status === 401) {
       throw new Error(`${name} failed (401): CRON_SECRET in .env must match Vercel → Settings → Environment Variables`);
     }

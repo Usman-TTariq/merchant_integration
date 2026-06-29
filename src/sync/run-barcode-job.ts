@@ -11,7 +11,8 @@ export type BarcodeJob = "barcode-cache" | "barcode-index" | "link" | "barcode-l
 
 const CRON_OPTS: BarcodeLinkOptions = {
   koronaPages: 5,
-  shipheroPages: 15,
+  shipheroPages: 3,
+  shipheroPageSize: 50,
   koronaConcurrency: 6,
 };
 
