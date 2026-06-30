@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { deleteErrorLogs, deleteWarningLogs, initDatabase, logSync } from "../db.js";
 import { runSyncJob, type SyncJob } from "../sync/run-job.js";
 import { runBarcodeJob, type BarcodeJob } from "../sync/run-barcode-job.js";
+import { isSyncPaused, setSyncPaused } from "../sync/pause.js";
 import { isCronAuthorized } from "./cron-auth.js";
 import { jobLockStatus, releaseJobLock, tryAcquireJobLock } from "./job-lock.js";
 import {
@@ -43,6 +44,14 @@ const PUBLIC_DIR = fs.existsSync(path.join(process.cwd(), "public"))
   ? path.join(process.cwd(), "public")
   : path.resolve(__dirname, "../../public");
 const PORT = Number(process.env.DASHBOARD_PORT ?? "3847");
+
+function syncPausedResponse(res: http.ServerResponse): void {
+  sendJson(res, 423, {
+    error: "Syncing is paused",
+    paused: true,
+    hint: "Resume syncing from the dashboard to allow Korona→ShipHero updates.",
+  });
+}
 
 function jobBusyResponse(job: string, res: http.ServerResponse): void {
   sendJson(res, 409, {
@@ -224,6 +233,9 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const syncJobs = ["products", "inventory", "orders", "stock"] as const;
 
       if (barcodeJobs.includes(job as (typeof barcodeJobs)[number])) {
+        if (await isSyncPaused()) {
+          return sendJson(res, 200, { ok: true, job, paused: true, skipped: true });
+        }
         if (!tryAcquireJobLock(job)) {
           jobBusyResponse(job, res);
           return;
@@ -243,6 +255,9 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
       if (!syncJobs.includes(job as (typeof syncJobs)[number])) {
         return sendJson(res, 404, { error: "Unknown cron job" });
+      }
+      if (await isSyncPaused()) {
+        return sendJson(res, 200, { ok: true, job, paused: true, skipped: true });
       }
       if (!tryAcquireJobLock(job)) {
         jobBusyResponse(job, res);
@@ -282,6 +297,20 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         vercel: Boolean(process.env.VERCEL),
         supabaseConfigured: Boolean(config.database.supabaseUrl && config.database.supabaseServiceKey),
       });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/sync/paused") {
+      return sendJson(res, 200, { paused: await isSyncPaused() });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sync/pause") {
+      await setSyncPaused(true, "dashboard");
+      return sendJson(res, 200, { ok: true, paused: true });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sync/resume") {
+      await setSyncPaused(false, "dashboard");
+      return sendJson(res, 200, { ok: true, paused: false });
     }
 
     if (req.method === "GET" && url.pathname === "/api/status") {
@@ -769,6 +798,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const syncJobs = ["products", "inventory", "orders", "stock", "all"] as const;
 
       if (barcodeJobs.includes(job as (typeof barcodeJobs)[number])) {
+        if (await isSyncPaused()) {
+          syncPausedResponse(res);
+          return;
+        }
         if (!tryAcquireJobLock(job)) {
           jobBusyResponse(job, res);
           return;
@@ -794,6 +827,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 
       if (!syncJobs.includes(job as (typeof syncJobs)[number])) {
         return sendJson(res, 400, { error: "Unknown sync job" });
+      }
+      if (await isSyncPaused()) {
+        syncPausedResponse(res);
+        return;
       }
       if (!tryAcquireJobLock(job)) {
         jobBusyResponse(job, res);

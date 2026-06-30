@@ -32,6 +32,7 @@ const state = {
   shProductsAfter: null,
   shProductsHistory: [],
   shProductsSearch: "",
+  syncPaused: false,
 };
 
 function looksLikeIsoTimestamp(value) {
@@ -91,6 +92,20 @@ function setBadge(id, ok, label, detail) {
   el.className = `badge ${ok ? "ok" : "err"}`;
   el.title = detail ?? "";
   el.textContent = `${label}: ${ok ? "OK" : "Fail"}`;
+}
+
+function applySyncPausedUI(paused) {
+  state.syncPaused = paused;
+  const banner = document.getElementById("sync-paused-banner");
+  const actions = document.querySelector(".actions");
+  const pauseBtn = document.getElementById("btn-pause-sync");
+  banner.hidden = !paused;
+  actions.classList.toggle("paused", paused);
+  pauseBtn.textContent = paused ? "Resume syncing" : "Pause all syncing";
+  pauseBtn.classList.toggle("active", paused);
+  document.querySelectorAll("[data-sync]").forEach((btn) => {
+    btn.disabled = paused;
+  });
 }
 
 function renderStats(stats) {
@@ -157,12 +172,13 @@ async function loadOverview() {
     api("/api/status"),
     api("/api/stats"),
     api("/api/cursors"),
+    api("/api/sync/paused"),
   ]);
 
   const errors = results
     .map((r, i) => {
       if (r.status === "rejected") {
-        const label = ["/api/status", "/api/stats", "/api/cursors"][i];
+        const label = ["/api/status", "/api/stats", "/api/cursors", "/api/sync/paused"][i];
         return `${label}: ${r.reason?.message ?? r.reason}`;
       }
       return null;
@@ -180,6 +196,9 @@ async function loadOverview() {
   const status = results[0].status === "fulfilled" ? results[0].value : null;
   const stats = results[1].status === "fulfilled" ? results[1].value : null;
   const cursors = results[2].status === "fulfilled" ? results[2].value : [];
+  const pauseState = results[3].status === "fulfilled" ? results[3].value : null;
+
+  if (pauseState) applySyncPausedUI(Boolean(pauseState.paused));
 
   if (status) {
     if (status.config?.displayTimezone) {
@@ -908,8 +927,29 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   window.location.href = "/login.html";
 });
 
+document.getElementById("btn-pause-sync").addEventListener("click", async () => {
+  const msg = document.getElementById("sync-msg");
+  const endpoint = state.syncPaused ? "/api/sync/resume" : "/api/sync/pause";
+  const label = state.syncPaused ? "Resume" : "Pause";
+  msg.textContent = `${label} syncing…`;
+  try {
+    const data = await api(endpoint, { method: "POST" });
+    applySyncPausedUI(Boolean(data.paused));
+    msg.textContent = data.paused
+      ? "All syncing paused — Korona→ShipHero updates stopped"
+      : "Syncing resumed";
+    setTimeout(refreshAll, 1500);
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+});
+
 document.querySelectorAll("[data-sync]").forEach((btn) => {
   btn.addEventListener("click", async () => {
+    if (state.syncPaused) {
+      document.getElementById("sync-msg").textContent = "Syncing is paused — resume first";
+      return;
+    }
     const job = btn.dataset.sync;
     const msg = document.getElementById("sync-msg");
     msg.textContent = `Starting ${job} sync…`;

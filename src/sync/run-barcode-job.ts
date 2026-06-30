@@ -6,6 +6,7 @@ import {
   runBarcodeLinkPipeline,
   type BarcodeLinkOptions,
 } from "./barcode-link.js";
+import { skipIfSyncPaused } from "./pause.js";
 
 export type BarcodeJob = "barcode-cache" | "barcode-index" | "link" | "barcode-link";
 
@@ -18,6 +19,9 @@ const CRON_OPTS: BarcodeLinkOptions = {
 
 export async function runBarcodeJob(job: BarcodeJob, opts: BarcodeLinkOptions = {}): Promise<Record<string, unknown>> {
   await initDatabase();
+  if (await skipIfSyncPaused(job)) {
+    return { paused: true, job };
+  }
   const merged = { ...CRON_OPTS, ...opts };
 
   switch (job) {

@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { config } from "./config.js";
 import { initDatabase, logSync } from "./db.js";
+import { skipIfSyncPaused } from "./sync/pause.js";
 import { syncInventory } from "./sync/inventory.js";
 import { syncOrders } from "./sync/orders.js";
 import { syncProducts } from "./sync/products.js";
@@ -8,7 +9,10 @@ import { syncStock } from "./sync/stock.js";
 
 function wrap(job: string, fn: () => Promise<unknown>): () => void {
   return () => {
-    fn().catch(async (err) => {
+    void (async () => {
+      if (await skipIfSyncPaused(job)) return;
+      await fn();
+    })().catch(async (err) => {
       await logSync(job, "error", err instanceof Error ? err.message : String(err));
     });
   };

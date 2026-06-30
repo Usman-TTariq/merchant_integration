@@ -122,6 +122,38 @@ body {
   box-shadow: var(--shadow);
 }
 
+.sync-paused-banner {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid #fcd34d;
+  background: var(--warn-bg);
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+.actions.paused .btn[data-sync] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn.warn {
+  border-color: #f59e0b;
+  color: #92400e;
+  background: var(--warn-bg);
+}
+
+.btn.warn:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #d97706;
+}
+
+.btn.warn.active {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
 .btn {
   border: 1px solid var(--border-strong);
   background: var(--surface);

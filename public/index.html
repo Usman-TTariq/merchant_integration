@@ -25,7 +25,12 @@
       </div>
     </header>
 
+    <div id="sync-paused-banner" class="sync-paused-banner" hidden>
+      Syncing is <strong>paused</strong> — Korona→ShipHero updates and product mapping are stopped. Dashboard data is read-only.
+    </div>
+
     <section class="actions">
+      <button id="btn-pause-sync" class="btn warn" type="button">Pause all syncing</button>
       <button class="btn" data-sync="products" type="button">Sync Products</button>
       <button class="btn" data-sync="inventory" type="button">Sync Inventory</button>
       <button class="btn" data-sync="orders" type="button">Sync Orders</button>
