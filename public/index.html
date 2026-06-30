@@ -80,6 +80,7 @@
           <input id="product-search" class="input search-input" placeholder="Search SKU, number, ID…" type="search" />
         </div>
         <p id="mappings-hint" class="muted" style="font-size:0.85rem;margin:0 0 0.75rem"></p>
+        <p class="hint">Korona POS products synced to ShipHero. <strong>Linked</strong> = barcode matched a web SKU (e.g. <code>0047640</code>) instead of the Korona number (e.g. <code>A10139</code>). This is not the full ShipHero catalog — use <strong>ShipHero Products</strong> for that.</p>
         <h3 class="section-subtitle">Linked to ShipHero web SKU</h3>
         <div id="mappings-linked-table" class="table-wrap" style="margin-bottom:1.25rem"></div>
         <h3 class="section-subtitle">All mappings</h3>
@@ -211,7 +212,7 @@
           </div>
         </div>
         <p id="sh-products-hint" class="sh-status-msg"></p>
-        <p class="hint">Live from ShipHero API — sorted by <strong>on hand</strong> on this page. ShipHero does not return an exact total; page count is <strong>estimated</strong> (~300k products). Use search for a specific SKU.</p>
+        <p class="hint">Full ShipHero warehouse catalog (live API) — sorted by <strong>on hand</strong> on this page. SKUs here are <strong>not necessarily mapped</strong> to Korona; check <strong>Product Mappings</strong> for Korona ↔ ShipHero links. Page count is <strong>estimated</strong> (~300k products).</p>
         <div id="sh-products-table" class="table-wrap sh-table"></div>
         <div class="pager" id="sh-products-pager"></div>
 
@@ -239,6 +240,6 @@
       </section>
     </main>
   </div>
-  <script src="/app.js?v=22" type="module"></script>
+  <script src="/app.js?v=23" type="module"></script>
 </body>
 </html>

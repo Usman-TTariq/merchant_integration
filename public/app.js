@@ -290,10 +290,22 @@ async function loadMappings() {
   ]);
   const hint = document.getElementById("mappings-hint");
   if (hint) {
-    const n = linkedData.total ?? 0;
-    hint.textContent = n
-      ? `${n} Korona product(s) linked to ShipHero web SKU — sorted by on hand (stocked first). Search: 0047640, 10655-1`
-      : "No barcode links yet. Run: npm run cache:korona-barcodes → index:shiphero-barcodes → link:products";
+    const linked = linkedData.total ?? 0;
+    const total = data.total ?? 0;
+    const search = state.productSearch?.trim();
+    if (search) {
+      hint.textContent =
+        linked || total
+          ? `Search “${search}”: ${linked} linked, ${total} total Korona mapping(s).`
+          : `No mappings match “${search}”. Try Korona #, ShipHero SKU, or product ID.`;
+    } else if (linked > 0) {
+      hint.textContent = `${linked} Korona product(s) linked to a web SKU (barcode match) — ${total} total Korona mappings. ShipHero Products tab shows the full catalog (~300k); only matched rows appear here as linked.`;
+    } else {
+      hint.textContent =
+        total > 0
+          ? `${total} Korona mapping(s), none linked to a web SKU yet. Run: npm run cache:korona-barcodes → index:shiphero-barcodes → link:products`
+          : "No product mappings yet. Run product sync first, then the barcode link pipeline.";
+    }
   }
   document.getElementById("mappings-linked-table").innerHTML = table(
     ["Korona #", "ShipHero SKU", "On hand", "Revision", "Updated", "Korona ID"],
