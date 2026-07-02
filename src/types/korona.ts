@@ -17,9 +17,28 @@ export interface KoronaProduct {
   name?: string;
   deleted?: boolean;
   trackInventory?: boolean;
+  commodityGroup?: KoronaReference;
+  sector?: KoronaReference;
+  assortment?: KoronaReference;
   codes?: Array<{ code?: string; productCode?: string; primary?: boolean }>;
   prices?: Array<{ value?: number; priceGroup?: KoronaReference }>;
 }
+
+export interface KoronaProductCreateResult {
+  status: "OK" | "ERROR";
+  id?: string;
+  number?: string;
+  revision?: number;
+  message?: string;
+  action?: string;
+  href?: string;
+}
+
+export type KoronaProductCreateInput = Partial<KoronaProduct> & {
+  commodityGroup?: KoronaReference;
+  sector?: KoronaReference;
+  assortment?: KoronaReference;
+};
 
 export interface KoronaSaleLine {
   quantity?: number;

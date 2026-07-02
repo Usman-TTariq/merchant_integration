@@ -83,7 +83,22 @@ export class ShipHeroClient {
       body: JSON.stringify({ query, variables }),
     });
 
-    const json = (await res.json()) as GraphQLResponse<T>;
+    const text = await res.text();
+    let json: GraphQLResponse<T>;
+    try {
+      json = JSON.parse(text) as GraphQLResponse<T>;
+    } catch {
+      const retryable =
+        res.status >= 500 || res.status === 429 || text.trimStart().startsWith("<");
+      if (retryable && attempt < 5) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        return this.graphql(query, variables, attempt + 1);
+      }
+      throw new Error(
+        `ShipHero non-JSON response (HTTP ${res.status}): ${text.replace(/\s+/g, " ").slice(0, 220)}`
+      );
+    }
+
     if (!res.ok || json.errors?.length) {
       const msg = json.errors?.map((e) => e.message).join("; ") ?? res.statusText;
       const creditWait = msg.match(/In (\d+) seconds? you will have enough credits/i);
@@ -134,7 +149,7 @@ export class ShipHeroClient {
     after?: string | null
   ): Promise<{
     pageInfo: { hasNextPage: boolean; endCursor: string | null };
-    products: Array<{ sku: string; barcode?: string; onHand: number }>;
+    products: Array<{ sku: string; name: string; barcode?: string; onHand: number; price?: string }>;
   }> {
     const { requireShipheroWarehouseId } = await import("../config.js");
     let warehouseId = "";
@@ -151,7 +166,10 @@ export class ShipHeroClient {
           edges: Array<{
             node: {
               sku: string;
+              name?: string;
               barcode?: string;
+              price?: string;
+              value?: string;
               warehouse_products?: Array<{ warehouse_id: string; on_hand?: number }>;
             };
           }>;
@@ -165,7 +183,10 @@ export class ShipHeroClient {
             edges {
               node {
                 sku
+                name
                 barcode
+                price
+                value
                 warehouse_products { warehouse_id on_hand }
               }
             }
@@ -178,11 +199,20 @@ export class ShipHeroClient {
     return {
       pageInfo: conn.pageInfo,
       products: conn.edges.map((e) => {
-        const row = e.node.warehouse_products?.find((w) => w.warehouse_id === warehouseId);
+        const rows = e.node.warehouse_products ?? [];
+        let onHand = 0;
+        if (warehouseId) {
+          onHand = rows.find((w) => w.warehouse_id === warehouseId)?.on_hand ?? 0;
+        } else if (rows.length) {
+          onHand = rows.reduce((sum, w) => sum + (w.on_hand ?? 0), 0);
+        }
+        const priceRaw = e.node.price ?? e.node.value;
         return {
           sku: e.node.sku,
+          name: e.node.name?.trim() || e.node.sku,
           barcode: e.node.barcode,
-          onHand: row?.on_hand ?? 0,
+          onHand,
+          price: priceRaw?.trim() || undefined,
         };
       }),
     };
@@ -559,5 +589,76 @@ export class ShipHeroClient {
     }
 
     return orders;
+  }
+
+  async listItemLocationIds(sku: string, warehouseId?: string): Promise<Array<{ id: string; quantity: number }>> {
+    const wid = warehouseId ?? requireShipheroWarehouseId();
+    const data = await this.graphql<{
+      item_locations: {
+        data: {
+          edges: Array<{ node: { id: string; quantity?: number } | null }>;
+        };
+      };
+    }>(
+      `query ItemLocations($sku: [String], $warehouse_id: String) {
+        item_locations(sku: $sku, warehouse_id: $warehouse_id) {
+          data {
+            edges {
+              node {
+                id
+                quantity
+              }
+            }
+          }
+        }
+      }`,
+      { sku: [sku], warehouse_id: wid }
+    );
+
+    return (data.item_locations?.data?.edges ?? [])
+      .map((e) => e.node)
+      .filter((n): n is { id: string; quantity?: number } => Boolean(n?.id))
+      .map((n) => ({ id: n.id, quantity: n.quantity ?? 0 }));
+  }
+
+  async deleteItemLocations(ids: string[]): Promise<string[]> {
+    const deleted: string[] = [];
+    for (const id of ids) {
+      const data = await this.graphql<{
+        item_location_delete: { ok?: boolean; deleted_ids?: string[] | string | null };
+      }>(
+        `mutation ItemLocationDelete($data: DeleteItemLocationInput!) {
+          item_location_delete(data: $data) {
+            ok
+            deleted_ids
+          }
+        }`,
+        { data: { ids: [id] } }
+      );
+      const result = data.item_location_delete?.deleted_ids;
+      if (Array.isArray(result)) deleted.push(...result);
+      else if (typeof result === "string" && result) deleted.push(result);
+      else deleted.push(id);
+    }
+    return deleted;
+  }
+
+  async deleteWarehouseProduct(sku: string, warehouseId?: string): Promise<void> {
+    const wid = warehouseId ?? requireShipheroWarehouseId();
+    await this.graphql(
+      `mutation WarehouseProductDelete($data: DeleteWarehouseProductInput!) {
+        warehouse_product_delete(data: $data) { request_id }
+      }`,
+      { data: { sku, warehouse_id: wid } }
+    );
+  }
+
+  async deleteProduct(sku: string): Promise<void> {
+    await this.graphql(
+      `mutation ProductDelete($data: DeleteProductInput!) {
+        product_delete(data: $data) { request_id }
+      }`,
+      { data: { sku } }
+    );
   }
 }

@@ -9,6 +9,7 @@ import {
   querySyncLogs,
 } from "../db.js";
 import { KoronaClient } from "../clients/korona.js";
+import { ShipHeroClient } from "../clients/shiphero.js";
 import { formatRowTimes } from "./format-time.js";
 import { getKoronaReceiptsLive } from "./status.js";
 
@@ -52,10 +53,43 @@ export async function getCursors(): Promise<Array<{ key: string; value: string; 
   return formatRowTimes(rows, ["updated_at"]);
 }
 
-export async function getProducts(page = 1, limit = 50, search = "", linkedOnly = false) {
-  const { rows, total } = await queryProductMappings({ page, limit, search, linkedOnly });
+async function enrichShipheroOnHandLive(rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  if (!rows.length) return rows;
+  const shiphero = new ShipHeroClient();
+  const out: Record<string, unknown>[] = [];
+  const batchSize = 8;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const chunk = rows.slice(i, i + batchSize);
+    const enriched = await Promise.all(
+      chunk.map(async (row) => {
+        const sku = String(row.shiphero_sku ?? "").trim();
+        if (!sku) return row;
+        try {
+          const product = await shiphero.getProductBySku(sku);
+          if (!product) return { ...row, shiphero_on_hand: 0 };
+          return { ...row, shiphero_on_hand: shiphero.getWarehouseOnHand(product) };
+        } catch {
+          return row;
+        }
+      })
+    );
+    out.push(...enriched);
+  }
+  return out;
+}
+
+export async function getProducts(
+  page = 1,
+  limit = 50,
+  search = "",
+  linkedOnly = false,
+  directOnly = false
+) {
+  const { rows, total } = await queryProductMappings({ page, limit, search, linkedOnly, directOnly });
+  const withOnHand =
+    directOnly || linkedOnly ? await enrichShipheroOnHandLive(rows as Record<string, unknown>[]) : rows;
   return {
-    rows: formatRowTimes(rows as Record<string, unknown>[], ["updated_at"]),
+    rows: formatRowTimes(withOnHand as Record<string, unknown>[], ["updated_at"]),
     total,
     page,
     limit,

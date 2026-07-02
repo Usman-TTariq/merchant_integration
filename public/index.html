@@ -85,8 +85,10 @@
           <input id="product-search" class="input search-input" placeholder="Search SKU, number, ID…" type="search" />
         </div>
         <p id="mappings-hint" class="muted" style="font-size:0.85rem;margin:0 0 0.75rem"></p>
-        <p class="hint">Korona POS products synced to ShipHero. <strong>Linked</strong> = barcode matched a web SKU (e.g. <code>0047640</code>) instead of the Korona number (e.g. <code>A10139</code>). This is not the full ShipHero catalog — use <strong>ShipHero Products</strong> for that.</p>
-        <h3 class="section-subtitle">Linked to ShipHero web SKU</h3>
+        <p class="hint">After ShipHero→Korona import, <strong>Direct</strong> mappings are the source of truth (Korona # = ShipHero SKU). <strong>Legacy linked</strong> rows are old barcode/web matches (e.g. <code>A10139</code> → web SKU) and may point to deleted Korona products.</p>
+        <h3 class="section-subtitle">Direct import (Korona # = ShipHero SKU)</h3>
+        <div id="mappings-direct-table" class="table-wrap" style="margin-bottom:1.25rem"></div>
+        <h3 class="section-subtitle">Legacy: linked to ShipHero web SKU</h3>
         <div id="mappings-linked-table" class="table-wrap" style="margin-bottom:1.25rem"></div>
         <h3 class="section-subtitle">All mappings</h3>
         <div id="mappings-table" class="table-wrap"></div>

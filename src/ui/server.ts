@@ -333,7 +333,8 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
           Number(q.page ?? 1),
           Number(q.limit ?? 50),
           q.search ?? "",
-          q.linked === "1" || q.linked === "true"
+          q.linked === "1" || q.linked === "true",
+          q.direct === "1" || q.direct === "true"
         )
       );
     }

@@ -278,6 +278,24 @@ export async function listProductMappingsForRelink(): Promise<
     .all() as Array<{ koronaProductId: string; koronaProductNumber: string | null; shipheroSku: string }>;
 }
 
+export async function countKoronaDuplicateMappings(): Promise<number> {
+  return (
+    sqlite()
+      .prepare(
+        `SELECT COUNT(*) AS c FROM product_mappings
+         WHERE korona_product_number IS NOT NULL AND shiphero_sku = korona_product_number`
+      )
+      .get() as { c: number }
+  ).c;
+}
+
+export async function deleteProductMapping(koronaProductId: string): Promise<boolean> {
+  const result = sqlite()
+    .prepare("DELETE FROM product_mappings WHERE korona_product_id = ?")
+    .run(koronaProductId);
+  return result.changes > 0;
+}
+
 export async function countShipheroBarcodeIndex(): Promise<number> {
   return (sqlite().prepare("SELECT COUNT(*) AS c FROM shiphero_barcode_index").get() as { c: number }).c;
 }
@@ -375,10 +393,34 @@ export async function queryProductMappings(opts: {
   limit: number;
   search?: string;
   linkedOnly?: boolean;
+  directOnly?: boolean;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const db = sqlite();
   const offset = (opts.page - 1) * opts.limit;
   const search = opts.search?.trim();
+  if (opts.directOnly) {
+    const rows = db
+      .prepare(
+        `SELECT pm.korona_product_id, pm.korona_product_number, pm.shiphero_sku, pm.korona_revision, pm.updated_at,
+                COALESCE(
+                  (SELECT MAX(s.on_hand) FROM shiphero_barcode_index s WHERE s.shiphero_sku = pm.shiphero_sku),
+                  0
+                ) AS shiphero_on_hand
+         FROM product_mappings pm
+         WHERE pm.korona_product_number IS NOT NULL AND pm.korona_product_number = pm.shiphero_sku
+         ORDER BY pm.updated_at DESC LIMIT ? OFFSET ?`
+      )
+      .all(opts.limit, offset) as Record<string, unknown>[];
+    const total = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM product_mappings
+           WHERE korona_product_number IS NOT NULL AND korona_product_number = shiphero_sku`
+        )
+        .get() as { c: number }
+    ).c;
+    return { rows, total };
+  }
   if (opts.linkedOnly) {
     const rows = db
       .prepare(
@@ -426,12 +468,7 @@ export async function queryProductMappings(opts: {
     .prepare(
       `SELECT korona_product_id, korona_product_number, shiphero_sku, korona_revision, updated_at
        FROM product_mappings
-       ORDER BY
-         CASE
-           WHEN korona_product_number IS NOT NULL AND shiphero_sku != korona_product_number THEN 0
-           ELSE 1
-         END,
-         updated_at DESC
+       ORDER BY updated_at DESC
        LIMIT ? OFFSET ?`
     )
     .all(opts.limit, offset) as Record<string, unknown>[];

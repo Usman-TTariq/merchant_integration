@@ -203,6 +203,39 @@ export async function listProductMappingsForRelink(): Promise<
   return all;
 }
 
+export async function countKoronaDuplicateMappings(): Promise<number> {
+  const pageSize = 1000;
+  let from = 0;
+  let total = 0;
+
+  while (true) {
+    const { data, error } = await getSupabase()
+      .from("product_mappings")
+      .select("korona_product_number, shiphero_sku")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const chunk = data ?? [];
+    for (const row of chunk) {
+      const num = row.korona_product_number ? String(row.korona_product_number) : "";
+      if (num && String(row.shiphero_sku) === num) total++;
+    }
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return total;
+}
+
+export async function deleteProductMapping(koronaProductId: string): Promise<boolean> {
+  const { data, error } = await getSupabase()
+    .from("product_mappings")
+    .delete()
+    .eq("korona_product_id", koronaProductId)
+    .select("korona_product_id");
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
+}
+
 export async function loadKoronaBarcodesMap(): Promise<Map<string, string[]>> {
   const pageSize = 1000;
   let from = 0;
@@ -386,11 +419,34 @@ export async function queryProductMappings(opts: {
   limit: number;
   search?: string;
   linkedOnly?: boolean;
+  directOnly?: boolean;
 }): Promise<{ rows: Record<string, unknown>[]; total: number }> {
   const sb = getSupabase();
   const from = (opts.page - 1) * opts.limit;
   const to = from + opts.limit - 1;
   const search = opts.search?.trim();
+
+  if (opts.directOnly) {
+    const { data, error } = await sb
+      .from("product_mappings")
+      .select("*")
+      .not("korona_product_number", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    const filtered = (data ?? []).filter(
+      (row) => row.shiphero_sku && row.korona_product_number && row.shiphero_sku === row.korona_product_number
+    );
+    const withOnHand = await Promise.all(
+      filtered.map(async (row) => ({
+        ...row,
+        shiphero_on_hand: await getShipheroOnHandForSku(String(row.shiphero_sku)),
+      }))
+    );
+    const total = withOnHand.length;
+    const rows = withOnHand.slice(from, to + 1);
+    return { rows: rows as Record<string, unknown>[], total };
+  }
 
   if (opts.linkedOnly) {
     const { data, error } = await sb

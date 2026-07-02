@@ -74,6 +74,10 @@ export const config = {
     inventoryListId: optional("KORONA_INVENTORY_LIST_ID"),
     /** Optional Korona warehouse UUID for stock reads (defaults: sum all warehouses). */
     warehouseId: optional("KORONA_WAREHOUSE_ID"),
+    /** Required for Korona product create (import). Auto-discovered when unset. */
+    commodityGroupId: optional("KORONA_COMMODITY_GROUP_ID"),
+    sectorId: optional("KORONA_SECTOR_ID"),
+    assortmentId: optional("KORONA_ASSORTMENT_ID"),
     /** PATCH trackInventory=true when /products/{id}/stocks returns not tracked (default on). */
     autoEnableStockTracking: optional("KORONA_AUTO_ENABLE_STOCK_TRACKING") !== "false",
   },
@@ -105,6 +109,8 @@ export const config = {
     stockBatchSize: Number(optional("STOCK_SYNC_BATCH_SIZE") ?? "150"),
     /** Link Korona products to existing ShipHero SKUs via barcode index / alternate SKU (default on). */
     linkShipheroByBarcode: optional("SHIPHERO_LINK_BY_BARCODE") !== "false",
+    /** Create new ShipHero SKUs from Korona when no barcode match (default on). Set false after duplicate cleanup. */
+    createKoronaProducts: optional("SYNC_CREATE_KORONA_PRODUCTS") !== "false",
   },
   cron: {
     products: optional("CRON_PRODUCTS") ?? "0 */4 * * *",

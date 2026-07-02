@@ -3,8 +3,11 @@ import type {
   KoronaCustomerOrder,
   KoronaInventoryListItem,
   KoronaProduct,
+  KoronaProductCreateInput,
+  KoronaProductCreateResult,
   KoronaProductStock,
   KoronaReceipt,
+  KoronaReference,
   KoronaResultList,
 } from "../types/korona.js";
 
@@ -92,6 +95,70 @@ export class KoronaClient {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+  }
+
+  /** Batch create products. Set upsert to update existing products matched by number. */
+  createProducts(
+    products: KoronaProductCreateInput[],
+    opts?: { upsert?: boolean }
+  ): Promise<KoronaProductCreateResult[]> {
+    if (!products.length) return Promise.resolve([]);
+    const query = this.buildQuery({ upsert: opts?.upsert ? "true" : undefined });
+    return this.request(this.accountPath(`/products${query}`), {
+      method: "POST",
+      body: JSON.stringify(products),
+    });
+  }
+
+  private async listRefs(path: string): Promise<KoronaReference[]> {
+    const list = await this.request<KoronaResultList<KoronaReference>>(this.accountPath(`${path}?page=1&size=50`));
+    return list?.results ?? [];
+  }
+
+  /** Resolve Korona refs required for POST /products (cached per process). */
+  async resolveImportRefs(): Promise<{
+    commodityGroupId: string;
+    sectorId: string;
+    assortmentId: string;
+  }> {
+    const fromEnv = {
+      commodityGroupId: config.korona.commodityGroupId,
+      sectorId: config.korona.sectorId,
+      assortmentId: config.korona.assortmentId,
+    };
+    if (fromEnv.commodityGroupId && fromEnv.sectorId && fromEnv.assortmentId) {
+      return {
+        commodityGroupId: fromEnv.commodityGroupId,
+        sectorId: fromEnv.sectorId,
+        assortmentId: fromEnv.assortmentId,
+      };
+    }
+
+    const [groups, sectors, assortments] = await Promise.all([
+      this.listRefs("/commodityGroups"),
+      this.listRefs("/sectors"),
+      this.listRefs("/assortments"),
+    ]);
+
+    const commodityGroupId =
+      fromEnv.commodityGroupId ??
+      groups.find((g) => g.name === "Spirits")?.id ??
+      groups.find((g) => g.name === "General")?.id ??
+      groups[0]?.id;
+    const sectorId =
+      fromEnv.sectorId ?? sectors.find((s) => s.name === "General")?.id ?? sectors[0]?.id;
+    const assortmentId =
+      fromEnv.assortmentId ??
+      assortments.find((a) => a.name?.includes("General"))?.id ??
+      assortments[0]?.id;
+
+    if (!commodityGroupId || !sectorId || !assortmentId) {
+      throw new Error(
+        "Korona product create requires commodityGroup, sector, and assortment. Set KORONA_COMMODITY_GROUP_ID, KORONA_SECTOR_ID, KORONA_ASSORTMENT_ID or run npm run discover"
+      );
+    }
+
+    return { commodityGroupId, sectorId, assortmentId };
   }
 
   getReceipts(opts?: {

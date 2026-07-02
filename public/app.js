@@ -284,17 +284,18 @@ function mappingRows(rows, showOnHand = false) {
     const shipSku = String(r.shiphero_sku ?? "");
     const onHand = Number(r.shiphero_on_hand ?? 0);
     const linked = koronaNum && shipSku && koronaNum !== shipSku;
+    const direct = koronaNum && shipSku && koronaNum === shipSku;
     const onHandCell = showOnHand
       ? onHand > 0
         ? `<strong>${onHand}</strong>`
         : `<span class="muted">${onHand}</span>`
       : null;
-    const base = [
-      esc(r.korona_product_number),
-      linked
-        ? `<strong>${esc(shipSku)}</strong> <span class="muted" style="font-size:0.8rem">linked</span>`
-        : `<strong>${esc(shipSku)}</strong>`,
-    ];
+    const skuCell = linked
+      ? `<strong>${esc(shipSku)}</strong> <span class="muted" style="font-size:0.8rem">legacy linked</span>`
+      : direct
+        ? `<strong>${esc(shipSku)}</strong> <span class="muted" style="font-size:0.8rem">direct</span>`
+        : `<strong>${esc(shipSku)}</strong>`;
+    const base = [esc(r.korona_product_number), skuCell];
     if (showOnHand) base.push(onHandCell);
     base.push(esc(r.korona_revision ?? ""), fmtTime(r.updated_at), `<code>${esc(r.korona_product_id)}</code>`);
     return base;
@@ -303,31 +304,32 @@ function mappingRows(rows, showOnHand = false) {
 
 async function loadMappings() {
   const q = state.productSearch ? `&search=${encodeURIComponent(state.productSearch)}` : "";
-  const [linkedData, data] = await Promise.all([
+  const [directData, linkedData, data] = await Promise.all([
+    api(`/api/products?direct=1&limit=50${q}`),
     api(`/api/products?linked=1&limit=50${q}`),
     api(`/api/products?page=${state.mappingsPage}&limit=50${q}`),
   ]);
   const hint = document.getElementById("mappings-hint");
   if (hint) {
+    const direct = directData.total ?? 0;
     const linked = linkedData.total ?? 0;
     const total = data.total ?? 0;
     const search = state.productSearch?.trim();
     if (search) {
       hint.textContent =
-        linked || total
-          ? `Search “${search}”: ${linked} linked, ${total} total Korona mapping(s).`
+        direct || linked || total
+          ? `Search “${search}”: ${direct} direct, ${linked} legacy linked, ${total} total mapping(s).`
           : `No mappings match “${search}”. Try Korona #, ShipHero SKU, or product ID.`;
-    } else if (linked > 0) {
-      hint.textContent = `${linked} Korona product(s) linked to a web SKU (barcode match) — ${total} total Korona mappings. ShipHero Products tab shows the full catalog (~300k); only matched rows appear here as linked.`;
     } else {
-      hint.textContent =
-        total > 0
-          ? `${total} Korona mapping(s), none linked to a web SKU yet. Run: npm run cache:korona-barcodes → index:shiphero-barcodes → link:products`
-          : "No product mappings yet. Run product sync first, then the barcode link pipeline.";
+      hint.textContent = `${direct} direct import mapping(s) (Korona # = ShipHero SKU) · ${linked} legacy web/barcode link(s) · ${total} total rows in DB (includes stale pre-wipe mappings until cleaned).`;
     }
   }
+  document.getElementById("mappings-direct-table").innerHTML = table(
+    ["Korona #", "ShipHero SKU", "ShipHero on hand", "Revision", "Updated", "Korona ID"],
+    mappingRows(directData.rows ?? [], true)
+  );
   document.getElementById("mappings-linked-table").innerHTML = table(
-    ["Korona #", "ShipHero SKU", "On hand", "Revision", "Updated", "Korona ID"],
+    ["Korona #", "ShipHero SKU", "ShipHero on hand", "Revision", "Updated", "Korona ID"],
     mappingRows(linkedData.rows ?? [], true)
   );
   document.getElementById("mappings-table").innerHTML = table(

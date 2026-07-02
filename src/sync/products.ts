@@ -69,6 +69,15 @@ export async function syncProducts(): Promise<{ created: number; updated: number
         const onHand = config.sync.koronaStock ? await koronaOnHand(korona, product.id) : 0;
 
         if (!resolved.existing) {
+          if (!config.sync.createKoronaProducts) {
+            skipped++;
+            await logSync(
+              "products",
+              "info",
+              `Skip create ${resolved.createSku}: no ShipHero match (SYNC_CREATE_KORONA_PRODUCTS=false)`
+            );
+            continue;
+          }
           await shiphero.createProduct({
             name,
             sku: resolved.createSku,
